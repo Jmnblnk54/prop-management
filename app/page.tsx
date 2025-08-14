@@ -1,24 +1,25 @@
-"use client";
+import Link from "next/link";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/context/AuthContext";
+export default function HomePage() {
+  return (
+    <main className="min-h-screen flex flex-col items-center justify-center bg-white text-gray-800 px-4 text-center">
+      <h1 className="text-4xl font-bold mb-4">Welcome to Domatia</h1>
+      <p className="text-lg max-w-xl mb-8">
+        Streamlined property management for owners, tenants, and landlords.
+        Whether you manage a single unit or an entire building, Domatia gives
+        you the tools to stay organized and efficient.
+      </p>
 
-export default function Home() {
-  const { user, appUser, loading } = useAuth();
-  const router = useRouter();
+      <Link
+        href="/login"
+        className="bg-black text-white px-6 py-3 rounded-md hover:bg-gray-900 transition"
+      >
+        Log In to Your Dashboard
+      </Link>
 
-  useEffect(() => {
-    if (loading) return;
-
-    if (!user || !appUser) {
-      router.push("/login");
-    } else if (appUser.role === "admin") {
-      router.push("/admin");
-    } else {
-      router.push("/user");
-    }
-  }, [user, appUser, loading, router]);
-
-  return <p className="text-center mt-20">Loading...</p>;
+      <footer className="mt-16 text-sm text-gray-500">
+        Domatia is a Chemmos company.
+      </footer>
+    </main>
+  );
 }
