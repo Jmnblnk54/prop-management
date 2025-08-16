@@ -2,39 +2,45 @@
 
 import React from 'react';
 
-interface Step4TenantInvitesProps {
+interface StepProps {
   onNext: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
 }
 
-export default function Step4TenantInvites({ onNext, onSkip }: Step4TenantInvitesProps) {
+export default function Step4TenantInvites({ onNext, onSkip }: StepProps) {
   return (
-    <div className="absolute top-0 left-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-      <div className="relative bg-white rounded-lg shadow-xl p-6 max-w-sm w-full transform transition-all duration-300 scale-95 animate-pop">
-        {/* Curved arrow placeholder – you’ll replace this with an actual SVG later */}
-        <div className="absolute -top-6 right-4 w-0 h-0 border-l-8 border-r-8 border-b-8 border-transparent border-b-white" />
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+      <div className="relative w-full max-w-sm rounded-lg bg-white p-6 shadow-xl animate-[balloon_280ms_ease-out]">
+        <style jsx>{`
+          @keyframes balloon {
+            0%   { transform: translateY(8px) scale(0.96); opacity: 0; }
+            60%  { transform: translateY(-2px) scale(1.02); opacity: 1; }
+            100% { transform: translateY(0) scale(1); }
+          }
+        `}</style>
 
-        <div className="absolute -top-8 left-1/2 transform -translate-x-1/2">
-          <div className="bg-blue-500 text-white rounded-full px-4 py-1 text-sm font-semibold shadow-md">
-            4 of 5
-          </div>
-        </div>
+        {/* pointer aimed toward “Invite Tenant” button in header actions */}
+        <div className="pointer-events-none absolute -top-4 right-6 h-0 w-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-white" />
 
-        <h2 className="text-xl font-bold mb-2 text-center">Invite Your Tenants</h2>
-        <p className="text-gray-700 mb-4 text-sm text-center">
-          You can send tenants a secure link so they can upload insurance, pay rent, and submit maintenance requests.
+        <h2 className="mb-2 text-center text-xl font-bold">Invite Tenants</h2>
+        <p className="mb-4 text-center text-sm text-gray-700">
+          When you’re ready, use
+          <span className="mx-1 rounded bg-gray-100 px-1 py-0.5">Invite Tenant</span>
+          to send a sign-up link for rent payments and messaging.
         </p>
 
         <div className="flex justify-between">
           <button
-            onClick={onSkip}
-            className="text-sm text-gray-500 hover:underline"
+            type="button"
+            onClick={() => { console.log('[Step4] Skip clicked'); onSkip?.(); }}
+            className="text-sm text-gray-600 hover:underline"
           >
             Skip
           </button>
           <button
-            onClick={onNext}
-            className="bg-blue-600 text-white text-sm px-4 py-2 rounded hover:bg-blue-700 transition"
+            type="button"
+            onClick={() => { console.log('[Step4] Next clicked'); onNext(); }}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
           >
             Next
           </button>
