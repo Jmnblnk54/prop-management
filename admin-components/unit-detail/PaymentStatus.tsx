@@ -1,29 +1,20 @@
-import React from "react";
-
 interface PaymentStatusProps {
-  isPaid: boolean;
-  dueDate: string;
-  amountDue: number;
+  isPaid?: boolean;
+  amountDue?: number;
+  dueDate?: string;
 }
 
-const PaymentStatus: React.FC<PaymentStatusProps> = ({
-  isPaid,
-  dueDate,
-  amountDue,
-}) => {
+export default function PaymentStatus({
+  isPaid = false,
+  amountDue = 0,
+  dueDate = "N/A",
+}: PaymentStatusProps) {
   return (
-    <div className="bg-white p-4 rounded shadow">
-      <h2 className="text-lg font-bold mb-2">Payment Status</h2>
-      {isPaid ? (
-        <p className="text-green-600 font-medium">Paid in full</p>
-      ) : (
-        <div className="text-red-600 font-medium">
-          <p>Amount Due: ${amountDue.toFixed(2)}</p>
-          <p>Due Date: {dueDate}</p>
-        </div>
-      )}
+    <div className="border p-4 rounded shadow">
+      <h2 className="text-lg font-semibold mb-2">Payment Status</h2>
+      <p>Status: {isPaid ? "Paid" : "Unpaid"}</p>
+      <p>Amount Due: ${amountDue.toFixed(2)}</p>
+      <p>Due Date: {dueDate}</p>
     </div>
   );
-};
-
-export default PaymentStatus;
+}

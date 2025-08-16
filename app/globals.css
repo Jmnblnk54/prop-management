@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+
+@tailwind utilities;
+
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -119,4 +123,19 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop {
+  animation: pop 0.3s ease-out forwards;
 }

@@ -1,20 +1,33 @@
 import React from "react";
 
 interface LeaseStatusProps {
-  leaseStart: string;  // ← changed from Date to string
-  leaseEnd: string;
-  isActive: boolean;
+  leaseStart: string; 
+  leaseLengthMonths: number; 
 }
 
-const LeaseStatus: React.FC<LeaseStatusProps> = ({ leaseStart, leaseEnd, isActive }) => {
+const LeaseStatus: React.FC<LeaseStatusProps> = ({ leaseStart, leaseLengthMonths }) => {
+  const start = new Date(leaseStart);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + leaseLengthMonths);
+
+  const now = new Date();
+  const isActive = now <= end;
+
+  const formatDate = (date: Date) =>
+    date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+
   return (
     <div className="bg-white shadow rounded p-4">
       <h2 className="text-lg font-semibold mb-2">Lease Status</h2>
       <p>
-        <strong>Start:</strong> {leaseStart}
+        <strong>Start:</strong> {formatDate(start)}
       </p>
       <p>
-        <strong>End:</strong> {leaseEnd}
+        <strong>End:</strong> {formatDate(end)}
       </p>
       <p>
         <strong>Status:</strong>{" "}

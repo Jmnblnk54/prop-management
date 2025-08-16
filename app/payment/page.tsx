@@ -1,27 +1,38 @@
-"use client";
+'use client';
 
-import { useRouter } from "next/navigation";
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 export default function PaymentPage() {
   const router = useRouter();
+  const { user, appUser, loading } = useAuth();
 
-  const handleBypass = () => {
-    router.push("/admin-dashboard");
-  };
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
 
   return (
-    <div className="max-w-xl mx-auto py-16 px-6 text-center">
-      <h1 className="text-3xl font-bold mb-4">Payment Coming Soon</h1>
-      <p className="mb-8 text-gray-600">
-        This is where payment integration will go. Once set up, admins will be able to securely enter billing info and complete setup.
+    <main className="max-w-xl mx-auto p-8 text-center">
+      <h1 className="text-3xl font-bold mb-6">Choose a Plan</h1>
+      <p className="mb-6 text-gray-600">
+        Payments will be handled here in the future. For now, click below to continue setup.
       </p>
 
+      <div className="mb-10">
+        {/* Replace with actual pricing UI when ready */}
+        <p className="text-lg font-medium">Starter Plan: $15/month</p>
+        <p className="text-sm text-gray-500">For up to 20 rental units</p>
+      </div>
+
       <button
-        onClick={handleBypass}
-        className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded font-semibold"
+        onClick={() => router.push('/admin-dashboard')}
+        className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 transition"
       >
-        Hi Josh! Click through here
+        Hi Josh! Click here to continue →
       </button>
-    </div>
+    </main>
   );
 }
