@@ -1,3 +1,4 @@
+// app/admin/properties/new/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,7 +8,6 @@ import { auth, db } from "@/lib/firebase";
 import {
     addDoc,
     collection,
-    collectionGroup,
     getCountFromServer,
     getDocs,
     orderBy,
@@ -38,7 +38,6 @@ export default function NewPropertyPage() {
     const [city, setCity] = useState("");
     const [stateVal, setStateVal] = useState("");
     const [zip, setZip] = useState("");
-    // Optional: create first unit right away (leave blank to skip)
     const [firstUnit, setFirstUnit] = useState("");
 
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,20 +49,19 @@ export default function NewPropertyPage() {
             setUid(user?.uid ?? null);
 
             if (!user) {
-                // redirect to login if unauthenticated
                 router.push("/login?next=/admin/properties/new");
                 return;
             }
 
             try {
-                // Count properties for this admin (no index needed)
+                // Count properties for this admin (no composite index needed)
                 const countSnap = await getCountFromServer(
                     query(collection(db, "properties"), where("adminId", "==", user.uid))
                 );
                 const count = countSnap.data().count;
                 setPropCount(count);
 
-                // If there are existing properties, fetch up to 50 to build dropdowns
+                // If there are existing properties, fetch some to build dropdowns
                 if (count > 0) {
                     const listSnap = await getDocs(
                         query(
@@ -117,7 +115,6 @@ export default function NewPropertyPage() {
                 return;
             }
 
-            // Create property
             const propRef = await addDoc(collection(db, "properties"), {
                 adminId: uid,
                 name: name.trim() || null,
@@ -129,7 +126,6 @@ export default function NewPropertyPage() {
                 createdAt: serverTimestamp(),
             });
 
-            // Optional: create first unit if provided
             if (firstUnit.trim()) {
                 await addDoc(collection(db, "properties", propRef.id, "units"), {
                     adminId: uid,
@@ -148,168 +144,188 @@ export default function NewPropertyPage() {
     };
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold">Add Property</h1>
-            </div>
+        /* Center horizontally within the main column and keep it centered regardless of sidebar width */
+        <div className="min-h-[calc(100vh-56px)] w-full">
+            <div className="mx-auto w-full max-w-2xl p-6">
+                <div className="mb-6 text-center">
+                    <h1 className="text-2xl font-semibold">Add Property</h1>
+                </div>
 
-            <form onSubmit={handleSubmit} className="max-w-2xl space-y-5">
-                {/* Property Name */}
-                <div>
-                    <label className="block text-sm text-gray-700">Property Name (optional)</label>
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    {/* Property Name (optional) */}
+                    <div>
+                        <label className="block text-sm text-gray-700">Property Name (optional)</label>
 
-                    {/* Only show dropdown if there are existing properties */}
-                    {isFirstProperty ? null : nameOptions.length ? (
-                        <div className="mt-1 flex gap-2">
-                            <select
-                                className="w-1/2 rounded border px-3 py-2 text-sm"
-                                onChange={(e) => setName(e.target.value)}
-                                defaultValue=""
-                            >
-                                <option value="" disabled>
-                                    Use previous name…
-                                </option>
-                                {nameOptions.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                        {o.label}
-                                    </option>
-                                ))}
-                            </select>
+                        {/* First property: show a simple input (no dropdown) */}
+                        {isFirstProperty ? (
                             <input
-                                className="w-1/2 rounded border px-3 py-2 text-sm"
-                                placeholder="Or enter a new name"
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                placeholder="e.g., Maple Grove Apartments"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                             />
-                        </div>
-                    ) : (
-                        <input
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            placeholder="e.g., Maple Grove Apartments"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                        />
-                    )}
-                </div>
-
-                {/* Address Line 1 */}
-                <div>
-                    <label className="block text-sm text-gray-700">Address Line 1</label>
-                    {/* Only show dropdown if there are existing properties */}
-                    {isFirstProperty ? null : addr1Options.length ? (
-                        <div className="mt-1 flex gap-2">
-                            <select
-                                className="w-1/2 rounded border px-3 py-2 text-sm"
-                                onChange={(e) => setAddressLine1(e.target.value)}
-                                defaultValue=""
-                            >
-                                <option value="" disabled>
-                                    Use previous address line 1…
-                                </option>
-                                {addr1Options.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                        {o.label}
+                        ) : nameOptions.length ? (
+                            // Subsequent properties: dropdown + free text
+                            <div className="mt-1 flex gap-2">
+                                <select
+                                    className="w-1/2 rounded border px-3 py-2 text-sm"
+                                    onChange={(e) => setName(e.target.value)}
+                                    defaultValue=""
+                                >
+                                    <option value="" disabled>
+                                        Use previous name…
                                     </option>
-                                ))}
-                            </select>
+                                    {nameOptions.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                            {o.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    className="w-1/2 rounded border px-3 py-2 text-sm"
+                                    placeholder="Or enter a new name"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                />
+                            </div>
+                        ) : (
                             <input
-                                className="w-1/2 rounded border px-3 py-2 text-sm"
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                placeholder="e.g., Maple Grove Apartments"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                            />
+                        )}
+                    </div>
+
+                    {/* Address Line 1 (required) */}
+                    <div>
+                        <label className="block text-sm text-gray-700">Address Line 1</label>
+
+                        {/* First property: simple input (no dropdown) */}
+                        {isFirstProperty ? (
+                            <input
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 placeholder="Enter Address Line 1"
                                 value={addressLine1}
                                 onChange={(e) => setAddressLine1(e.target.value)}
                                 required
                             />
+                        ) : addr1Options.length ? (
+                            <div className="mt-1 flex gap-2">
+                                <select
+                                    className="w-1/2 rounded border px-3 py-2 text-sm"
+                                    onChange={(e) => setAddressLine1(e.target.value)}
+                                    defaultValue=""
+                                >
+                                    <option value="" disabled>
+                                        Use previous address line 1…
+                                    </option>
+                                    {addr1Options.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                            {o.label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    className="w-1/2 rounded border px-3 py-2 text-sm"
+                                    placeholder="Enter Address Line 1"
+                                    value={addressLine1}
+                                    onChange={(e) => setAddressLine1(e.target.value)}
+                                    required
+                                />
+                            </div>
+                        ) : (
+                            <input
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                placeholder="Enter Address Line 1"
+                                value={addressLine1}
+                                onChange={(e) => setAddressLine1(e.target.value)}
+                                required
+                            />
+                        )}
+                    </div>
+
+                    {/* Address Line 2 (optional) */}
+                    <div>
+                        <label className="block text-sm text-gray-700">Address Line 2 (optional)</label>
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            placeholder="Apt / Suite / Unit"
+                            value={addressLine2}
+                            onChange={(e) => setAddressLine2(e.target.value)}
+                        />
+                    </div>
+
+                    {/* City / State / Zip */}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                            <label className="block text-sm text-gray-700">City</label>
+                            <input
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                value={city}
+                                onChange={(e) => setCity(e.target.value)}
+                                required
+                            />
                         </div>
-                    ) : (
-                        <input
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            placeholder="Enter Address Line 1"
-                            value={addressLine1}
-                            onChange={(e) => setAddressLine1(e.target.value)}
-                            required
-                        />
-                    )}
-                </div>
+                        <div>
+                            <label className="block text-sm text-gray-700">State</label>
+                            <input
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                value={stateVal}
+                                onChange={(e) => setStateVal(e.target.value)}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-700">ZIP</label>
+                            <input
+                                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                                value={zip}
+                                onChange={(e) => setZip(e.target.value)}
+                                required
+                            />
+                        </div>
+                    </div>
 
-                {/* Address Line 2 (Suite / Unit) */}
-                <div>
-                    <label className="block text-sm text-gray-700">Address Line 2 (optional)</label>
-                    <input
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                        placeholder="Apt / Suite / Unit"
-                        value={addressLine2}
-                        onChange={(e) => setAddressLine2(e.target.value)}
-                    />
-                </div>
-
-                {/* City / State / Zip */}
-                <div className="grid gap-3 sm:grid-cols-3">
+                    {/* Optional: create a first Unit immediately */}
                     <div>
-                        <label className="block text-sm text-gray-700">City</label>
+                        <label className="block text-sm text-gray-700">Create First Unit (optional)</label>
                         <input
                             className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            value={city}
-                            onChange={(e) => setCity(e.target.value)}
-                            required
+                            placeholder="e.g., Unit 1, Apt A, Suite 200"
+                            value={firstUnit}
+                            onChange={(e) => setFirstUnit(e.target.value)}
                         />
+                        <div className="mt-1 text-xs text-gray-500">
+                            If provided, this will create a unit under the property right away.
+                        </div>
                     </div>
-                    <div>
-                        <label className="block text-sm text-gray-700">State</label>
-                        <input
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            value={stateVal}
-                            onChange={(e) => setStateVal(e.target.value)}
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm text-gray-700">ZIP</label>
-                        <input
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            value={zip}
-                            onChange={(e) => setZip(e.target.value)}
-                            required
-                        />
-                    </div>
-                </div>
 
-                {/* Optional: create a first Unit immediately */}
-                <div>
-                    <label className="block text-sm text-gray-700">Create First Unit (optional)</label>
-                    <input
-                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                        placeholder="e.g., Unit 1, Apt A, Suite 200"
-                        value={firstUnit}
-                        onChange={(e) => setFirstUnit(e.target.value)}
-                    />
-                    <div className="mt-1 text-xs text-gray-500">
-                        If provided, this will create a unit under the property right away.
-                    </div>
-                </div>
+                    {error ? (
+                        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            {error}
+                        </div>
+                    ) : null}
 
-                {error ? (
-                    <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                        {error}
+                    <div className="flex items-center justify-center gap-2">
+                        <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50"
+                        >
+                            {isSubmitting ? "Saving…" : "Save Property"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => router.push("/admin-dashboard")}
+                            className="rounded border px-4 py-2 hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
                     </div>
-                ) : null}
-
-                <div className="flex gap-2">
-                    <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50"
-                    >
-                        {isSubmitting ? "Saving…" : "Save Property"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => router.push("/admin-dashboard")}
-                        className="rounded border px-4 py-2 hover:bg-gray-50"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            </form>
+                </form>
+            </div>
         </div>
     );
 }

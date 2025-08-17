@@ -13,7 +13,13 @@ type NavItem = {
     icon: string;
 };
 
-export default function Sidebar({ collapsed }: { collapsed: boolean }) {
+export default function Sidebar({
+    collapsed,
+    onToggle,
+}: {
+    collapsed: boolean;
+    onToggle: () => void;
+}) {
     const pathname = usePathname();
 
     // Unread message count for the admin (sum of unreadCountAdmin across threads)
@@ -30,25 +36,19 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
             setUnreadMessages(0);
             return;
         }
-        // NOTE: No composite index required here — only equality on adminId.
+        // No composite index needed (equality on adminId only).
         const q = query(collection(db, 'threads'), where('adminId', '==', uid));
-
-        // Use the error callback to avoid Next.js runtime overlay on permission issues
         const unsub = onSnapshot(
             q,
             (snap) => {
                 let total = 0;
                 snap.forEach((d) => {
-                    const data = d.data() as any;
-                    const n = typeof data.unreadCountAdmin === 'number' ? data.unreadCountAdmin : 0;
-                    total += n;
+                    const n = (d.data() as any)?.unreadCountAdmin;
+                    total += typeof n === 'number' ? n : 0;
                 });
                 setUnreadMessages(total);
             },
-            (_err) => {
-                // Permission denied or other issues should not crash the UI
-                setUnreadMessages(0);
-            }
+            () => setUnreadMessages(0) // swallow permission/index errors in dev
         );
         return () => unsub();
     }, [uid]);
@@ -67,43 +67,84 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
         []
     );
 
-    return (
-        <nav
-            aria-label="Sidebar"
-            className={`h-[calc(100vh-56px)] sticky top-14 border-r bg-white transition-all ${collapsed ? 'w-16' : 'w-64'
-                }`}
-            style={{ ['--sidebar-w' as any]: collapsed ? '4rem' : '16rem' }}
-        >
-            <ul className="py-3">
-                {NAV.map((item) => {
-                    const active = pathname === item.href || pathname?.startsWith(item.href + '/');
-                    const isMessages = item.label === 'Messages';
-                    return (
-                        <li key={item.href}>
-                            <Link
-                                href={item.href}
-                                className={`mx-2 my-0.5 flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-gray-100 ${active ? 'bg-gray-100 font-medium' : ''
-                                    }`}
-                                title={collapsed ? item.label : undefined}
-                            >
-                                <span className="flex items-center gap-3">
-                                    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-hidden="true">
-                                        <path d={item.icon} stroke="currentColor" strokeWidth="2" fill="none" />
-                                    </svg>
-                                    <span className={collapsed ? 'sr-only' : ''}>{item.label}</span>
-                                </span>
+    // Drawer widths
+    const OPEN_W = 'w-64';
+    const CLOSED_W = 'w-0'; // fully hidden; we render a tiny handle separately
 
-                                {/* Unread badge for Messages (admin only), hidden when collapsed */}
-                                {!collapsed && isMessages && unreadMessages > 0 ? (
-                                    <span className="ml-2 inline-flex min-w-[1.25rem] justify-center rounded-full bg-gray-900 px-1 text-xs font-medium text-white">
-                                        {unreadMessages}
-                                    </span>
-                                ) : null}
-                            </Link>
-                        </li>
-                    );
-                })}
-            </ul>
-        </nav>
+    return (
+        <>
+            {/* Drawer panel (fixed overlay so main stays centered across VIEWPORT) */}
+            <aside
+                className={`fixed left-0 top-0 z-40 h-screen border-r bg-white shadow-sm transition-[width] duration-200 ease-out overflow-hidden ${collapsed ? CLOSED_W : OPEN_W}`}
+                aria-label="Admin Sidebar"
+            >
+                {/* Header with collapse control */}
+                <div className="flex items-center justify-between px-3 py-3 border-b">
+                    <div className="text-sm font-semibold">Admin</div>
+                    <button
+                        type="button"
+                        onClick={onToggle}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded hover:bg-gray-100"
+                        title="Collapse sidebar"
+                        aria-label="Collapse sidebar"
+                    >
+                        {/* Chevron-left */}
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" fill="none" />
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Nav */}
+                <nav className="h-[calc(100vh-49px)] overflow-y-auto">
+                    <ul className="py-3">
+                        {NAV.map((item) => {
+                            const active = pathname === item.href || pathname?.startsWith(item.href + '/');
+                            const isMessages = item.label === 'Messages';
+                            return (
+                                <li key={item.href}>
+                                    <Link
+                                        href={item.href}
+                                        className={`mx-2 my-0.5 flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-gray-100 ${active ? 'bg-gray-100 font-medium' : ''
+                                            }`}
+                                    >
+                                        <span className="flex items-center gap-3">
+                                            <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0" aria-hidden="true">
+                                                <path d={item.icon} stroke="currentColor" strokeWidth="2" fill="none" />
+                                            </svg>
+                                            <span>{item.label}</span>
+                                        </span>
+
+                                        {/* Unread badge for Messages (admin only) */}
+                                        {isMessages && unreadMessages > 0 ? (
+                                            <span className="ml-2 inline-flex min-w-[1.25rem] justify-center rounded-full bg-gray-900 px-1 text-xs font-medium text-white">
+                                                {unreadMessages}
+                                            </span>
+                                        ) : null}
+                                    </Link>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </nav>
+            </aside>
+
+            {/* Collapse/expand HANDLE: always visible at the very left edge */}
+            {collapsed ? (
+                <button
+                    type="button"
+                    onClick={onToggle}
+                    className="fixed left-0 top-24 z-50 inline-flex items-center gap-2 rounded-r border border-l-0 bg-white px-2 py-2 shadow-sm hover:bg-gray-50"
+                    title="Open sidebar"
+                    aria-label="Open sidebar"
+                >
+                    {/* Chevron-right */}
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                        <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" fill="none" />
+                    </svg>
+                    <span className="text-xs font-medium">Menu</span>
+                </button>
+            ) : null}
+        </>
     );
 }
