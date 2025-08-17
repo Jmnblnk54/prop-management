@@ -1,419 +1,315 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useAuth } from '@/context/AuthContext';
-import RoleGate from '@/components/auth/RoleGate';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "@/lib/firebase";
+import {
+    addDoc,
+    collection,
+    collectionGroup,
+    getCountFromServer,
+    getDocs,
+    orderBy,
+    query,
+    serverTimestamp,
+    where,
+    limit,
+} from "firebase/firestore";
 
-type PropertyDoc = {
-  id: string;
-  name?: string | null;
-  adminId: string;
-  address: {
-    line1: string;
-    line2?: string | null;
-    city: string;
-    state: string;
-    postalCode: string;
-    country?: string;
-  };
-  type?: string;
-};
-
-const NEW_NAME = '__NEW_NAME__';
-const NO_NAME = '__NO_NAME__';
-const NEW_ADDR = '__NEW_ADDR__';
+type Option = { value: string; label: string };
 
 export default function NewPropertyPage() {
-  const router = useRouter();
-  const { user, loading } = useAuth();
+    const router = useRouter();
 
-  // Source data (existing props for this admin)
-  const [loadingOptions, setLoadingOptions] = useState(true);
-  const [source, setSource] = useState<PropertyDoc[]>([]);
+    // auth
+    const [uid, setUid] = useState<string | null>(null);
 
-  // Form state
-  const [nameSelect, setNameSelect] = useState<string>(NO_NAME);
-  const [nameInput, setNameInput] = useState('');
-  const [addrSelect, setAddrSelect] = useState<string>(NEW_ADDR);
-  const [addrLine1Input, setAddrLine1Input] = useState('');
-  const [addrLine2, setAddrLine2] = useState('');
-  const [city, setCity] = useState('');
-  const [stateProv, setStateProv] = useState('');
-  const [postalCode, setPostalCode] = useState('');
-  const [country, setCountry] = useState('USA');
-  const [ptype, setPtype] = useState('');
+    // existing state
+    const [propCount, setPropCount] = useState<number | null>(null);
+    const [nameOptions, setNameOptions] = useState<Option[]>([]);
+    const [addr1Options, setAddr1Options] = useState<Option[]>([]);
+    const isFirstProperty = useMemo(() => (propCount ?? 0) === 0, [propCount]);
 
-  const [submitting, setSubmitting] = useState(false);
-  const [inlineMsg, setInlineMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+    // form state
+    const [name, setName] = useState("");
+    const [addressLine1, setAddressLine1] = useState("");
+    const [addressLine2, setAddressLine2] = useState("");
+    const [city, setCity] = useState("");
+    const [stateVal, setStateVal] = useState("");
+    const [zip, setZip] = useState("");
+    // Optional: create first unit right away (leave blank to skip)
+    const [firstUnit, setFirstUnit] = useState("");
 
-  // Load existing properties for this admin (names & addresses)
-  useEffect(() => {
-    const load = async () => {
-      if (!user) return;
-      setLoadingOptions(true);
-      try {
-        const qRef = query(collection(db, 'properties'), where('adminId', '==', user.uid));
-        const snap = await getDocs(qRef);
-        const list: PropertyDoc[] = [];
-        snap.forEach((d) => {
-          const v = d.data() as any;
-          list.push({
-            id: d.id,
-            name: v?.name ?? null,
-            adminId: v?.adminId,
-            address: {
-              line1: v?.address?.line1 || '',
-              line2: v?.address?.line2 ?? null,
-              city: v?.address?.city || '',
-              state: v?.address?.state || '',
-              postalCode: v?.address?.postalCode || '',
-              country: v?.address?.country || '',
-            },
-            type: v?.type || '',
-          });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // hydrate auth and fetch counts/options
+    useEffect(() => {
+        const unsubAuth = onAuthStateChanged(auth, async (user) => {
+            setUid(user?.uid ?? null);
+
+            if (!user) {
+                // redirect to login if unauthenticated
+                router.push("/login?next=/admin/properties/new");
+                return;
+            }
+
+            try {
+                // Count properties for this admin (no index needed)
+                const countSnap = await getCountFromServer(
+                    query(collection(db, "properties"), where("adminId", "==", user.uid))
+                );
+                const count = countSnap.data().count;
+                setPropCount(count);
+
+                // If there are existing properties, fetch up to 50 to build dropdowns
+                if (count > 0) {
+                    const listSnap = await getDocs(
+                        query(
+                            collection(db, "properties"),
+                            where("adminId", "==", user.uid),
+                            orderBy("addressLine1", "asc"),
+                            limit(50)
+                        )
+                    );
+
+                    const names = new Set<string>();
+                    const addr1s = new Set<string>();
+                    listSnap.forEach((d) => {
+                        const data = d.data() as any;
+                        if (typeof data.name === "string" && data.name.trim()) names.add(data.name.trim());
+                        if (typeof data.addressLine1 === "string" && data.addressLine1.trim())
+                            addr1s.add(data.addressLine1.trim());
+                    });
+
+                    setNameOptions(Array.from(names).map((v) => ({ value: v, label: v })));
+                    setAddr1Options(Array.from(addr1s).map((v) => ({ value: v, label: v })));
+                } else {
+                    setNameOptions([]);
+                    setAddr1Options([]);
+                }
+            } catch {
+                // Don’t crash UI on permission/index hiccups in dev
+                setPropCount(0);
+                setNameOptions([]);
+                setAddr1Options([]);
+            }
         });
-        setSource(list);
-      } finally {
-        setLoadingOptions(false);
-      }
+
+        return () => unsubAuth();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        setError(null);
+
+        try {
+            if (!uid) {
+                router.push("/login?next=/admin/properties/new");
+                return;
+            }
+
+            if (!addressLine1.trim() || !city.trim() || !stateVal.trim() || !zip.trim()) {
+                setError("Please fill Address Line 1, City, State, and ZIP.");
+                return;
+            }
+
+            // Create property
+            const propRef = await addDoc(collection(db, "properties"), {
+                adminId: uid,
+                name: name.trim() || null,
+                addressLine1: addressLine1.trim(),
+                addressLine2: addressLine2.trim() || null,
+                city: city.trim(),
+                state: stateVal.trim(),
+                zip: zip.trim(),
+                createdAt: serverTimestamp(),
+            });
+
+            // Optional: create first unit if provided
+            if (firstUnit.trim()) {
+                await addDoc(collection(db, "properties", propRef.id, "units"), {
+                    adminId: uid,
+                    propertyId: propRef.id,
+                    unitNumber: firstUnit.trim(),
+                    createdAt: serverTimestamp(),
+                });
+            }
+
+            router.push("/admin-dashboard");
+        } catch (err: any) {
+            setError(err?.message || "Something went wrong while saving the property.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
-    load();
-  }, [user]);
 
-  const nameOptions = useMemo(() => {
-    const set = new Set<string>();
-    source.forEach((p) => {
-      if (p.name && p.name.trim().length > 0) set.add(p.name.trim());
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [source]);
+    return (
+        <div className="p-6 space-y-6">
+            <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-semibold">Add Property</h1>
+            </div>
 
-  const isExistingNameSelected =
-    nameSelect !== NEW_NAME && nameSelect !== NO_NAME && nameSelect.trim().length > 0;
+            <form onSubmit={handleSubmit} className="max-w-2xl space-y-5">
+                {/* Property Name */}
+                <div>
+                    <label className="block text-sm text-gray-700">Property Name (optional)</label>
 
-  // Addresses filtered by selected name (only if a real existing name is selected)
-  const addressOptions = useMemo(() => {
-    const all = source.map((p) => p.address.line1).filter(Boolean);
-    if (isExistingNameSelected) {
-      const filtered = source
-        .filter((p) => (p.name || '').trim() === nameSelect)
-        .map((p) => p.address.line1)
-        .filter(Boolean);
-      return Array.from(new Set(filtered)).sort((a, b) => a.localeCompare(b));
-    }
-    // Otherwise, show all addresses
-    return Array.from(new Set(all)).sort((a, b) => a.localeCompare(b));
-  }, [source, isExistingNameSelected, nameSelect]);
+                    {/* Only show dropdown if there are existing properties */}
+                    {isFirstProperty ? null : nameOptions.length ? (
+                        <div className="mt-1 flex gap-2">
+                            <select
+                                className="w-1/2 rounded border px-3 py-2 text-sm"
+                                onChange={(e) => setName(e.target.value)}
+                                defaultValue=""
+                            >
+                                <option value="" disabled>
+                                    Use previous name…
+                                </option>
+                                {nameOptions.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                className="w-1/2 rounded border px-3 py-2 text-sm"
+                                placeholder="Or enter a new name"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                            />
+                        </div>
+                    ) : (
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            placeholder="e.g., Maple Grove Apartments"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                        />
+                    )}
+                </div>
 
-  // If user chooses an existing address, auto-fill property name when that address has a name
-  useEffect(() => {
-    if (addrSelect === NEW_ADDR) return;
-    const match = source.find((p) => p.address.line1 === addrSelect);
-    if (match) {
-      if (match.name && match.name.trim().length > 0) {
-        setNameSelect(match.name.trim());
-        setNameInput('');
-      } else {
-        // The matched property previously had no name
-        setNameSelect(NO_NAME);
-        setNameInput('');
-      }
-    }
-  }, [addrSelect, source]);
+                {/* Address Line 1 */}
+                <div>
+                    <label className="block text-sm text-gray-700">Address Line 1</label>
+                    {/* Only show dropdown if there are existing properties */}
+                    {isFirstProperty ? null : addr1Options.length ? (
+                        <div className="mt-1 flex gap-2">
+                            <select
+                                className="w-1/2 rounded border px-3 py-2 text-sm"
+                                onChange={(e) => setAddressLine1(e.target.value)}
+                                defaultValue=""
+                            >
+                                <option value="" disabled>
+                                    Use previous address line 1…
+                                </option>
+                                {addr1Options.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                        {o.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                className="w-1/2 rounded border px-3 py-2 text-sm"
+                                placeholder="Enter Address Line 1"
+                                value={addressLine1}
+                                onChange={(e) => setAddressLine1(e.target.value)}
+                                required
+                            />
+                        </div>
+                    ) : (
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            placeholder="Enter Address Line 1"
+                            value={addressLine1}
+                            onChange={(e) => setAddressLine1(e.target.value)}
+                            required
+                        />
+                    )}
+                </div>
 
-  // If user chooses an existing name and that name maps to only one address, auto-select it
-  useEffect(() => {
-    if (!isExistingNameSelected) return;
-    const addrs = source
-      .filter((p) => (p.name || '').trim() === nameSelect)
-      .map((p) => p.address.line1);
-    const unique = Array.from(new Set(addrs));
-    if (unique.length === 1) {
-      setAddrSelect(unique[0]);
-      setAddrLine1Input('');
-    } else {
-      // multiple addresses with same name → force selection
-      setAddrSelect(NEW_ADDR);
-    }
-  }, [isExistingNameSelected, nameSelect, source]);
+                {/* Address Line 2 (Suite / Unit) */}
+                <div>
+                    <label className="block text-sm text-gray-700">Address Line 2 (optional)</label>
+                    <input
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                        placeholder="Apt / Suite / Unit"
+                        value={addressLine2}
+                        onChange={(e) => setAddressLine2(e.target.value)}
+                    />
+                </div>
 
-  // Resolve final values
-  const resolvedName =
-    nameSelect === NEW_NAME ? nameInput.trim() : nameSelect === NO_NAME ? '' : nameSelect;
-  const resolvedLine1 = addrSelect === NEW_ADDR ? addrLine1Input.trim() : addrSelect;
+                {/* City / State / Zip */}
+                <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                        <label className="block text-sm text-gray-700">City</label>
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            value={city}
+                            onChange={(e) => setCity(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-700">State</label>
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            value={stateVal}
+                            onChange={(e) => setStateVal(e.target.value)}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-700">ZIP</label>
+                        <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            value={zip}
+                            onChange={(e) => setZip(e.target.value)}
+                            required
+                        />
+                    </div>
+                </div>
 
-  const canSubmit =
-    !!user &&
-    !submitting &&
-    resolvedLine1.length > 0 &&
-    city.trim().length > 0 &&
-    stateProv.trim().length > 0 &&
-    postalCode.trim().length > 0;
+                {/* Optional: create a first Unit immediately */}
+                <div>
+                    <label className="block text-sm text-gray-700">Create First Unit (optional)</label>
+                    <input
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                        placeholder="e.g., Unit 1, Apt A, Suite 200"
+                        value={firstUnit}
+                        onChange={(e) => setFirstUnit(e.target.value)}
+                    />
+                    <div className="mt-1 text-xs text-gray-500">
+                        If provided, this will create a unit under the property right away.
+                    </div>
+                </div>
 
-  const resetForm = () => {
-    setNameSelect(NO_NAME);
-    setNameInput('');
-    setAddrSelect(NEW_ADDR);
-    setAddrLine1Input('');
-    setAddrLine2('');
-    setCity('');
-    setStateProv('');
-    setPostalCode('');
-    setCountry('USA');
-    setPtype('');
-    setError(null);
-  };
+                {error ? (
+                    <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                        {error}
+                    </div>
+                ) : null}
 
-  const refreshOptions = async () => {
-    if (!user) return;
-    try {
-      const qRef = query(collection(db, 'properties'), where('adminId', '==', user.uid));
-      const snap = await getDocs(qRef);
-      const next: PropertyDoc[] = [];
-      snap.forEach((d) => {
-        const v = d.data() as any;
-        next.push({
-          id: d.id,
-          name: v?.name ?? null,
-          adminId: v?.adminId,
-          address: {
-            line1: v?.address?.line1 || '',
-            line2: v?.address?.line2 ?? null,
-            city: v?.address?.city || '',
-            state: v?.address?.state || '',
-            postalCode: v?.address?.postalCode || '',
-            country: v?.address?.country || '',
-          },
-          type: v?.type || '',
-        });
-      });
-      setSource(next);
-    } catch {
-      // ignore
-    }
-  };
-
-  const saveProperty = async (): Promise<string | null> => {
-    if (!user) return null;
-    setSubmitting(true);
-    setInlineMsg(null);
-    setError(null);
-    try {
-      const docRef = await addDoc(collection(db, 'properties'), {
-        adminId: user.uid,
-        name: resolvedName.length > 0 ? resolvedName : null, 
-        type: ptype || null,
-        address: {
-          line1: resolvedLine1,
-          line2: addrLine2.trim() || null,
-          city: city.trim(),
-          state: stateProv.trim(),
-          postalCode: postalCode.trim(),
-          country: country.trim() || null,
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      return docRef.id;
-    } catch (e: any) {
-      setError(e?.message || 'Failed to save property.');
-      return null;
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSave = async () => {
-    const id = await saveProperty();
-    if (id) {
-      router.push(`/admin/property/${id}`);
-    }
-  };
-
-  const handleSaveAndAddMore = async () => {
-    const id = await saveProperty();
-    if (id) {
-      await refreshOptions();
-      resetForm();
-      setInlineMsg('Property saved. You can add another now.');
-    }
-  };
-
-  return (
-    <RoleGate allowed={['admin']}>
-      <main className="max-w-3xl mx-auto p-4 md:p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-2xl md:text-3xl font-bold">Add Property</h1>
-          <Link href="/admin-dashboard" className="text-sm underline hover:no-underline">
-            Back to dashboard
-          </Link>
+                <div className="flex gap-2">
+                    <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50"
+                    >
+                        {isSubmitting ? "Saving…" : "Save Property"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => router.push("/admin-dashboard")}
+                        className="rounded border px-4 py-2 hover:bg-gray-50"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </form>
         </div>
-
-        {inlineMsg && (
-          <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            {inlineMsg}
-          </div>
-        )}
-        {error && (
-          <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSave();
-          }}
-          className="space-y-6"
-        >
-          {/* Property Name (optional) */}
-          <div>
-            <label className="mb-1 block text-sm font-medium">Property Name (optional)</label>
-            <select
-              className="w-full rounded border px-3 py-2"
-              value={nameSelect}
-              onChange={(e) => setNameSelect(e.target.value)}
-              disabled={loading || loadingOptions || submitting}
-            >
-              <option value={NO_NAME}>No Property Name</option>
-              <option value={NEW_NAME}>New Property Name…</option>
-              {nameOptions.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            {nameSelect === NEW_NAME && (
-              <input
-                className="mt-2 w-full rounded border px-3 py-2"
-                placeholder="e.g., Maple Court Apartments"
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                disabled={submitting}
-              />
-            )}
-          </div>
-
-          {/* Address Line 1 (dependent on name selection only if an existing name chosen) */}
-          <div>
-            <label className="mb-1 block text-sm font-medium">Address Line 1</label>
-            <select
-              className="w-full rounded border px-3 py-2"
-              value={addrSelect}
-              onChange={(e) => setAddrSelect(e.target.value)}
-              disabled={loading || loadingOptions || submitting}
-            >
-              <option value={NEW_ADDR}>New Address Line 1…</option>
-              {addressOptions.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-            {addrSelect === NEW_ADDR && (
-              <input
-                className="mt-2 w-full rounded border px-3 py-2"
-                placeholder="e.g., 123 Main St"
-                value={addrLine1Input}
-                onChange={(e) => setAddrLine1Input(e.target.value)}
-                disabled={submitting}
-              />
-            )}
-          </div>
-
-          {/* Address Line 2 (unit/suite), City/State/Postal/Country */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Address Line 2 (Unit/Suite)</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                placeholder="Optional (e.g., Apt 2B)"
-                value={addrLine2}
-                onChange={(e) => setAddrLine2(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">City</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">State/Province</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                value={stateProv}
-                onChange={(e) => setStateProv(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Postal Code</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                value={postalCode}
-                onChange={(e) => setPostalCode(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Country</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                disabled={submitting}
-                placeholder="USA"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Type (optional)</label>
-              <input
-                className="w-full rounded border px-3 py-2"
-                placeholder="e.g., apartment, duplex, single-family"
-                value={ptype}
-                onChange={(e) => setPtype(e.target.value)}
-                disabled={submitting}
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Save Property
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveAndAddMore}
-              disabled={!canSubmit}
-              className="rounded border px-4 py-2 hover:bg-gray-50 disabled:opacity-50"
-            >
-              Save & Add More
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push('/admin-dashboard')}
-              className="ml-auto rounded border px-4 py-2 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </main>
-    </RoleGate>
-  );
+    );
 }

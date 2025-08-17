@@ -14,3 +14,14 @@ export interface PropertyDetails {
   address: string;
   units: Unit[];
 }
+
+export interface UnitDoc {
+  id: string;
+  adminId: string;
+  propertyId: string;
+  unitNumber: string;
+  rent?: number;
+  tenantId?: string;
+  insuranceStatus?: 'submitted' | 'verified' | 'rejected' | null;
+  createdAt?: any;
+}
