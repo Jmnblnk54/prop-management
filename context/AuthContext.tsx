@@ -1,77 +1,57 @@
 "use client";
 
-import {
-  ReactNode,
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
+import { ensureAdminProfile } from "@/lib/ensureAdmin";
 
-interface AppUser {
-  uid: string;
-  email: string | null;
-  role: "admin" | "user" | "tenant"; // extendable
-  [key: string]: any;
-}
+type AppUser = { role: "admin" | "admin2" | "tenant" } | null;
 
-interface AuthContextType {
-  user: User | null;
-  appUser: AppUser | null;
+type Ctx = {
+  user: FirebaseUser | null;
+  appUser: AppUser;
   loading: boolean;
-}
+};
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  appUser: null,
-  loading: true,
-});
+const C = createContext<Ctx>({ user: null, appUser: null, loading: true });
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [appUser, setAppUser] = useState<AppUser | null>(null);
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [appUser, setAppUser] = useState<AppUser>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        const userRef = doc(db, "users", firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-          // 👤 Create default user profile in Firestore
-          const defaultRole =
-            firebaseUser.email === "admin@example.com" ? "admin" : "user"; // or 'tenant'
-          const newUser: AppUser = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            role: defaultRole,
-            createdAt: serverTimestamp(),
-          };
-          await setDoc(userRef, newUser);
-          setAppUser(newUser);
-        } else {
-          setAppUser(userSnap.data() as AppUser);
-        }
-      } else {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (!u) {
         setAppUser(null);
+        setLoading(false);
+        return;
       }
 
-      setLoading(false);
+      try {
+        await ensureAdminProfile(u);
+        const snap = await getDoc(doc(db, "admins", u.uid));
+        if (snap.exists()) {
+          const d = snap.data() as any;
+          const role = (d?.role ?? "tenant") as "admin" | "admin2" | "tenant";
+          setAppUser({ role });
+        } else {
+          setAppUser({ role: "tenant" });
+        }
+      } catch {
+        setAppUser({ role: "tenant" });
+      } finally {
+        setLoading(false);
+      }
     });
-
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  return (
-    <AuthContext.Provider value={{ user, appUser, loading }}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+  return <C.Provider value={{ user, appUser, loading }}>{children}</C.Provider>;
+}
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(C);
+}

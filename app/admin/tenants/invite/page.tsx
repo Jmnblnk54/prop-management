@@ -1,8 +1,12 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
+import RoleGate from "@/components/auth/RoleGate";
+import { db } from "@/lib/firebase";
+import { ensureAdminProfile } from "@/lib/ensureAdmin";
 import {
   addDoc,
   collection,
@@ -10,16 +14,9 @@ import {
   query,
   serverTimestamp,
   where,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import Link from 'next/link';
-import RoleGate from '@/components/auth/RoleGate';
+} from "firebase/firestore";
 
-interface PropertyOption {
-  id: string;
-  name: string;
-  type?: string;
-}
+type PropertyOption = { id: string; name: string; type?: string };
 
 export default function InviteTenantPage() {
   const router = useRouter();
@@ -27,42 +24,36 @@ export default function InviteTenantPage() {
   const { user, loading } = useAuth();
 
   const [properties, setProperties] = useState<PropertyOption[]>([]);
-  const [selectedPropertyId, setSelectedPropertyId] = useState('');
-  const [unitLabel, setUnitLabel] = useState('');
-  const [tenantEmail, setTenantEmail] = useState('');
-  const [message, setMessage] = useState('');
+  const [selectedPropertyId, setSelectedPropertyId] = useState("");
+  const [unitLabel, setUnitLabel] = useState("");
+  const [tenantEmail, setTenantEmail] = useState("");
+  const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Redirect if not authenticated
   useEffect(() => {
-    if (!loading && !user) router.push('/login');
+    if (!loading && !user) router.push("/login?next=/admin/tenants/invite");
   }, [loading, user, router]);
 
-  // Load admin properties
   useEffect(() => {
     const load = async () => {
       if (!user) return;
       try {
-        const q = query(collection(db, 'properties'), where('adminId', '==', user.uid));
+        await ensureAdminProfile(user);
+        const q = query(collection(db, "properties"), where("adminId", "==", user.uid));
         const snap = await getDocs(q);
         const opts: PropertyOption[] = [];
-        snap.forEach((doc) => {
-          const d = doc.data() as any;
-          opts.push({ id: doc.id, name: d?.name || 'Untitled', type: d?.type });
+        snap.forEach((d) => {
+          const x = d.data() as any;
+          opts.push({ id: d.id, name: x?.name || "Untitled", type: x?.type });
         });
         setProperties(opts);
 
-        // Preselect from ?property=
-        const hint = params.get('property');
-        if (hint && opts.some((o) => o.id === hint)) {
-          setSelectedPropertyId(hint);
-        } else if (!hint && opts.length === 1) {
-          // UX nicety: single property auto-select
-          setSelectedPropertyId(opts[0].id);
-        }
+        const hint = params.get("property");
+        if (hint && opts.some((o) => o.id === hint)) setSelectedPropertyId(hint);
+        else if (!hint && opts.length === 1) setSelectedPropertyId(opts[0].id);
       } catch (e: any) {
-        setError(e?.message || 'Failed to load properties.');
+        setError(e?.message || "Failed to load properties.");
       }
     };
     load();
@@ -76,31 +67,31 @@ export default function InviteTenantPage() {
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !canSubmit) return;
-
     setSending(true);
     setError(null);
     try {
-      await addDoc(collection(db, 'tenantInvites'), {
+      await ensureAdminProfile(user);
+      await addDoc(collection(db, "tenantInvites"), {
         adminId: user.uid,
         propertyId: selectedPropertyId,
         unit: unitLabel.trim() || null,
         tenantEmail: tenantEmail.trim().toLowerCase(),
         message: message.trim() || null,
-        status: 'sent',
+        status: "sent",
         createdAt: serverTimestamp(),
       });
       router.push(`/admin/property/${selectedPropertyId}`);
     } catch (err: any) {
-      setError(err?.message || 'Failed to send invite.');
+      setError(err?.message || "Failed to send invite.");
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <RoleGate allowed={['admin']}>
-      <main className="max-w-3xl mx-auto p-4 md:p-6">
-        <h1 className="text-2xl md:text-3xl font-bold mb-4">Invite Tenant</h1>
+    <RoleGate allowed={["admin"]}>
+      <main className="mx-auto w-full max-w-2xl p-6">
+        <h1 className="mb-4 text-2xl font-bold">Invite Tenant</h1>
 
         {error && (
           <div className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -123,7 +114,7 @@ export default function InviteTenantPage() {
         ) : (
           <form onSubmit={handleSendInvite} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-1">Property</label>
+              <label className="mb-1 block text-sm font-medium">Property</label>
               <select
                 className="w-full rounded border px-3 py-2"
                 value={selectedPropertyId}
@@ -138,9 +129,9 @@ export default function InviteTenantPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium mb-1">Tenant email</label>
+                <label className="mb-1 block text-sm font-medium">Tenant email</label>
                 <input
                   type="email"
                   className="w-full rounded border px-3 py-2"
@@ -151,7 +142,7 @@ export default function InviteTenantPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Unit (optional)</label>
+                <label className="mb-1 block text-sm font-medium">Unit (optional)</label>
                 <input
                   className="w-full rounded border px-3 py-2"
                   value={unitLabel}
@@ -162,7 +153,7 @@ export default function InviteTenantPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Message (optional)</label>
+              <label className="mb-1 block text-sm font-medium">Message (optional)</label>
               <textarea
                 rows={3}
                 className="w-full rounded border px-3 py-2"
@@ -178,11 +169,11 @@ export default function InviteTenantPage() {
                 disabled={!canSubmit}
                 className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {sending ? 'Sending…' : 'Send invite'}
+                {sending ? "Sending…" : "Send invite"}
               </button>
               <button
                 type="button"
-                onClick={() => router.push('/admin-dashboard')}
+                onClick={() => router.push("/admin-dashboard")}
                 className="rounded border px-4 py-2 hover:bg-gray-50"
               >
                 Cancel
