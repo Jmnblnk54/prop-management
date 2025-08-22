@@ -80,6 +80,35 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+  --brand-accent: #6898C2;
+  --brand-primary: #1E67A2;
+  --brand-soft: #A0BBD6;
+  --brand-lavender: #D8C6F2;
+  --surface-page-header: var(--brand-accent);
+  --surface-card-header: #EDF2FA;
+  --border-card: var(--brand-soft);
+  --text-default: #000000;
+
+  .border-card {
+    border-color: var(--border-card);
+  }
+
+  .bg-card-header {
+    background-color: var(--surface-card-header);
+  }
+
+  .bg-page-header {
+    background-color: var(--surface-page-header);
+  }
+
+  .text-brand {
+    color: var(--brand-primary);
+  }
+
+  .border-brand-soft {
+    border-color: var(--brand-soft);
+  }
+}
 }
 
 .dark {
@@ -120,6 +149,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -130,6 +160,7 @@
     transform: scale(0.7);
     opacity: 0;
   }
+
   100% {
     transform: scale(1);
     opacity: 1;
