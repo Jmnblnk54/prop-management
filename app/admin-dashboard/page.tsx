@@ -1,7 +1,7 @@
 "use client";
 
+import React, { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
@@ -13,7 +13,7 @@ import {
   where,
 } from "firebase/firestore";
 import { ensureAdminProfile } from "@/lib/ensureAdmin";
-import TenantAlerts from "@/admin-components/TenantAlerts";
+const TenantAlerts = lazy(() => import("@/admin-components/TenantAlerts"));
 import RoleGate from "@/components/auth/RoleGate";
 
 type Stat = { label: string; value: number | string };
@@ -41,7 +41,7 @@ const COLORS = {
 
 function Skeleton() {
   return (
-    <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
+    <main className="mx-auto w-full max-w-2xl p-6 space-y-6" aria-busy="true" aria-live="polite">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="animate-pulse rounded border bg-white p-4">
@@ -74,6 +74,12 @@ export default function AdminDashboardPage() {
   const [properties, setProperties] = useState<PropertyWithUnits[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeoutReached, setTimeoutReached] = useState(false);
+
+  // Optional: put keyboard focus on the page title when this mounts
+  useEffect(() => {
+    const el = document.getElementById("page-title");
+    el?.focus();
+  }, []);
 
   useEffect(() => {
     if (!waitForId) return;
@@ -233,31 +239,63 @@ export default function AdminDashboardPage() {
 
   return (
     <RoleGate allowed={["admin"]}>
-      <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
-        <TenantAlerts />
+      {/* Main is already a landmark; tie it to a programmatic heading for SRs */}
+      <main
+        className="mx-auto w-full max-w-2xl p-6 space-y-6"
+        aria-labelledby="page-title"
+      >
+        {/* Visually hidden page title for screen readers & focus target */}
+        <h1 id="page-title" tabIndex={-1} className="sr-only">
+          Admin dashboard
+        </h1>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {visibleStats.map((s) => (
-            <div
-              key={s.label}
-              className="rounded border bg-white"
-              style={{ borderColor: COLORS.border }}
-            >
-              <div
-                className="px-4 h-10 flex items-center text-sm"
-                style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}
-              >
-                {s.label}
-              </div>
-              <div className="px-4 py-3 text-2xl font-semibold text-gray-900">
-                {s.value}
-              </div>
+        {/* Announce while TenantAlerts code chunk loads */}
+        <Suspense
+          fallback={
+            <div role="status" aria-live="polite" className="text-sm text-gray-500">
+              Loading alerts…
             </div>
-          ))}
-        </div>
+          }
+        >
+          <TenantAlerts />
+        </Suspense>
 
+        {/* KPI cards as an accessible list */}
+        <ul role="list" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {visibleStats.map((s) => {
+            const idBase = `stat-${s.label.replace(/\s+/g, "-").toLowerCase()}`;
+            return (
+              <li
+                key={s.label}
+                role="listitem"
+                aria-labelledby={`${idBase}-label`}
+                aria-describedby={`${idBase}-value`}
+                className="rounded border bg-white"
+                style={{ borderColor: COLORS.border }}
+              >
+                <div
+                  id={`${idBase}-label`}
+                  className="px-4 h-10 flex items-center text-sm"
+                  style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}
+                >
+                  {s.label}
+                </div>
+                <div
+                  id={`${idBase}-value`}
+                  className="px-4 py-3 text-2xl font-semibold text-gray-900"
+                >
+                  {s.value}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* If a just-created property hasn't appeared yet, announce politely */}
         {waitingForNew && !newPropPresent && timeoutReached ? (
           <div
+            role="status"
+            aria-live="polite"
             className="rounded border p-3 text-sm"
             style={{ borderColor: "#FACC15", backgroundColor: "#FFFBEB", color: "#713F12" }}
           >
@@ -265,16 +303,22 @@ export default function AdminDashboardPage() {
           </div>
         ) : null}
 
-        <section className="space-y-4">
+        <section
+          className="space-y-4"
+          aria-labelledby="props-heading"
+        >
           <div
             className="rounded border"
             style={{ borderColor: COLORS.border, backgroundColor: COLORS.headerBg }}
           >
             <div className="flex items-center justify-between px-4 py-2">
-              <h2 className="text-lg font-semibold text-gray-900">Your Properties</h2>
+              <h2 id="props-heading" className="text-lg font-semibold text-gray-900">
+                Your Properties
+              </h2>
               <Link
                 href="/admin/properties/new"
                 className="rounded border px-3 py-1 text-sm"
+                aria-label="Add a new property"
                 style={{ borderColor: COLORS.soft, color: COLORS.primary }}
               >
                 + Add Property
@@ -300,10 +344,12 @@ export default function AdminDashboardPage() {
                     <div className="font-medium text-gray-900">{g.name}</div>
                   </div>
 
-                  <ul className="grid gap-3 md:grid-cols-2">
+                  <ul role="list" className="grid gap-3 md:grid-cols-2">
                     {g.items.map((p) => (
                       <li
                         key={p.id}
+                        role="listitem"
+                        aria-label={`${p.addressLine1}, ${p.city}, ${p.state} ${p.zip}${p.unitsCount > 0 ? `, Units: ${p.unitsCount}` : ""}`}
                         className="rounded border bg-white"
                         style={{ borderColor: COLORS.border }}
                       >
@@ -330,6 +376,7 @@ export default function AdminDashboardPage() {
                           <Link
                             href={`/admin/property/${p.id}`}
                             className="rounded border px-3 py-1 text-sm"
+                            aria-label={`View property at ${p.addressLine1}, ${p.city}, ${p.state} ${p.zip}`}
                             style={{ borderColor: COLORS.soft, color: COLORS.primary }}
                           >
                             View Property

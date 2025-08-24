@@ -40,6 +40,46 @@ function tsSeconds(t: any): number {
     return 0;
 }
 
+function useReactFormState(fields: {
+    addressLine1: string;
+    zip: string;
+    city: string;
+    stateVal: string;
+    attemptedSubmit: boolean;
+}) {
+    const { addressLine1, zip, city, stateVal, attemptedSubmit } = fields;
+
+    const invalid = useMemo(
+        () => ({
+            addressLine1: attemptedSubmit && !trim(addressLine1),
+            zip:
+                attemptedSubmit &&
+                (!trim(zip) || !isFiveDigitZip(zip)),
+            city: attemptedSubmit && !trim(city),
+            stateVal:
+                attemptedSubmit &&
+                (!trim(stateVal) || trim(stateVal).length !== 2),
+        }),
+        [addressLine1, zip, city, stateVal, attemptedSubmit]
+    );
+
+    const messages = {
+        addressLine1:
+            invalid.addressLine1 ? "Address Line 1 is required." : "",
+        zip: invalid.zip
+            ? "ZIP must be a 5-digit code."
+            : "",
+        city: invalid.city ? "City is required." : "",
+        stateVal:
+            invalid.stateVal ? "State must be a 2-letter code." : "",
+    };
+
+    const isValid =
+        !invalid.addressLine1 && !invalid.zip && !invalid.city && !invalid.stateVal;
+
+    return { invalid, messages, isValid };
+}
+
 export default function NewPropertyPage() {
     const router = useRouter();
 
@@ -62,6 +102,7 @@ export default function NewPropertyPage() {
     const lastFetchedZip = useRef<string>("");
 
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [attemptedSubmit, setAttemptedSubmit] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
 
@@ -166,7 +207,7 @@ export default function NewPropertyPage() {
         if (!pick && addressLine1) pick = latestBy(prevProps, "addressLine1", addressLine1);
 
         if (pick) applyFromProp(pick);
-    }, [name, addressLine1, prevProps]); // <-- key fix
+    }, [name, addressLine1, prevProps]); // <-- key fix kept
 
     const resetForm = () => {
         setName("");
@@ -179,6 +220,7 @@ export default function NewPropertyPage() {
         setStateDirty(false);
         setSuccess(null);
         setError(null);
+        setAttemptedSubmit(false);
     };
 
     const createPropertyAndOptionalUnit = async () => {
@@ -203,21 +245,36 @@ export default function NewPropertyPage() {
         return propRef.id;
     };
 
+    const { invalid, messages, isValid } = useReactFormState({
+        addressLine1,
+        zip,
+        city,
+        stateVal,
+        attemptedSubmit,
+    });
+
     const persist = async (mode: "save" | "more") => {
         const u = auth.currentUser;
         if (!u) {
             router.push("/login?next=/admin/properties/new");
             return;
         }
+        setAttemptedSubmit(true);
         setIsSubmitting(true);
         setError(null);
         setSuccess(null);
         try {
             await ensureAdminProfile(u);
+            // keep your existing guard
             if (!trim(addressLine1) || !trim(zip) || !trim(city) || !trim(stateVal)) {
                 setError("Please fill Address Line 1, ZIP, City, and State.");
                 return;
             }
+            if (!isValid) {
+                setError("Please fix the highlighted fields.");
+                return;
+            }
+
             const newId = await createPropertyAndOptionalUnit();
 
             // make the just-saved property available for immediate autofill on the next entry
@@ -271,16 +328,21 @@ export default function NewPropertyPage() {
                 </div>
 
                 <form
+                    noValidate
                     onSubmit={(e) => {
                         e.preventDefault();
                         persist("save");
                     }}
                     className="space-y-5"
+                    aria-describedby={error ? "form-error" : undefined}
                 >
                     <div>
-                        <label className="block text-sm text-gray-700">Property Name (optional)</label>
+                        <label htmlFor="prop-name" className="block text-sm text-gray-700">
+                            Property Name (optional)
+                        </label>
                         {isFirstProperty ? (
                             <input
+                                id="prop-name"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 placeholder="e.g., Maple Grove Apartments"
                                 value={name}
@@ -289,6 +351,7 @@ export default function NewPropertyPage() {
                         ) : nameOptions.length ? (
                             <div className="mt-1 flex gap-2">
                                 <select
+                                    aria-label="Use previous property name"
                                     className="w-1/2 rounded border px-3 py-2 text-sm"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
@@ -301,6 +364,7 @@ export default function NewPropertyPage() {
                                     ))}
                                 </select>
                                 <input
+                                    id="prop-name"
                                     className="w-1/2 rounded border px-3 py-2 text-sm"
                                     placeholder="Or enter a new name"
                                     value={name}
@@ -309,6 +373,7 @@ export default function NewPropertyPage() {
                             </div>
                         ) : (
                             <input
+                                id="prop-name"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 placeholder="e.g., Maple Grove Apartments"
                                 value={name}
@@ -318,21 +383,30 @@ export default function NewPropertyPage() {
                     </div>
 
                     <div>
-                        <label className="block text-sm text-gray-700">Address Line 1</label>
+                        <label htmlFor="addr1" className="block text-sm text-gray-700">
+                            Address Line 1
+                        </label>
                         {isFirstProperty ? (
                             <input
+                                id="addr1"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 placeholder="Enter Address Line 1"
                                 value={addressLine1}
                                 onChange={(e) => setAddressLine1(e.target.value)}
                                 required
+                                aria-required="true"
+                                aria-invalid={invalid.addressLine1 || undefined}
+                                aria-describedby={invalid.addressLine1 ? "addr1-help" : undefined}
                             />
                         ) : addr1Options.length ? (
                             <div className="mt-1 flex gap-2">
                                 <select
+                                    aria-label="Use previous address line 1"
                                     className="w-1/2 rounded border px-3 py-2 text-sm"
                                     value={addressLine1}
                                     onChange={(e) => setAddressLine1(e.target.value)}
+                                    aria-invalid={invalid.addressLine1 || undefined}
+                                    aria-describedby={invalid.addressLine1 ? "addr1-help" : undefined}
                                 >
                                     <option value="">Use previous address line 1…</option>
                                     {addr1Options.map((o) => (
@@ -342,28 +416,44 @@ export default function NewPropertyPage() {
                                     ))}
                                 </select>
                                 <input
+                                    id="addr1"
                                     className="w-1/2 rounded border px-3 py-2 text-sm"
                                     placeholder="Enter Address Line 1"
                                     value={addressLine1}
                                     onChange={(e) => setAddressLine1(e.target.value)}
                                     required
+                                    aria-required="true"
+                                    aria-invalid={invalid.addressLine1 || undefined}
+                                    aria-describedby={invalid.addressLine1 ? "addr1-help" : undefined}
                                 />
                             </div>
                         ) : (
                             <input
+                                id="addr1"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 placeholder="Enter Address Line 1"
                                 value={addressLine1}
                                 onChange={(e) => setAddressLine1(e.target.value)}
                                 required
+                                aria-required="true"
+                                aria-invalid={invalid.addressLine1 || undefined}
+                                aria-describedby={invalid.addressLine1 ? "addr1-help" : undefined}
                             />
                         )}
+                        {invalid.addressLine1 ? (
+                            <p id="addr1-help" className="mt-1 text-xs text-red-600">
+                                {messages.addressLine1}
+                            </p>
+                        ) : null}
                     </div>
 
                     <div>
-                        <label className="block text-sm text-gray-700">ZIP</label>
+                        <label htmlFor="zip" className="block text-sm text-gray-700">
+                            ZIP
+                        </label>
                         <div className="mt-1 flex gap-2">
                             <input
+                                id="zip"
                                 className="w-full rounded border px-3 py-2 text-sm"
                                 placeholder="e.g., 10001"
                                 value={zip}
@@ -375,6 +465,17 @@ export default function NewPropertyPage() {
                                 required
                                 inputMode="numeric"
                                 pattern="\d{5}"
+                                aria-required="true"
+                                aria-invalid={invalid.zip || undefined}
+                                aria-describedby={
+                                    invalid.zip
+                                        ? "zip-help"
+                                        : zipStatus === "error"
+                                            ? "zip-lookup-error"
+                                            : zipStatus === "done"
+                                                ? "zip-lookup-done"
+                                                : undefined
+                                }
                             />
                             <button
                                 type="button"
@@ -385,16 +486,28 @@ export default function NewPropertyPage() {
                                 {zipStatus === "loading" ? "Looking…" : "Auto-fill"}
                             </button>
                         </div>
+                        {invalid.zip ? (
+                            <p id="zip-help" className="mt-1 text-xs text-red-600">
+                                {messages.zip}
+                            </p>
+                        ) : null}
                         {zipStatus === "error" ? (
-                            <div className="mt-1 text-xs text-red-600">Couldn’t look up that ZIP.</div>
+                            <p id="zip-lookup-error" className="mt-1 text-xs text-red-600">
+                                Couldn’t look up that ZIP.
+                            </p>
                         ) : zipStatus === "done" ? (
-                            <div className="mt-1 text-xs text-gray-500">City/State auto-filled.</div>
+                            <p id="zip-lookup-done" className="mt-1 text-xs text-gray-500">
+                                City/State auto-filled.
+                            </p>
                         ) : null}
                     </div>
 
                     <div>
-                        <label className="block text-sm text-gray-700">Unit / Apt / Ste (optional)</label>
+                        <label htmlFor="unit" className="block text-sm text-gray-700">
+                            Unit / Apt / Ste (optional)
+                        </label>
                         <input
+                            id="unit"
                             className="mt-1 w-full rounded border px-3 py-2 text-sm"
                             placeholder="Unit/Apt/Ste #"
                             value={unitOrSuite}
@@ -404,8 +517,11 @@ export default function NewPropertyPage() {
 
                     <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                            <label className="block text-sm text-gray-700">City</label>
+                            <label htmlFor="city" className="block text-sm text-gray-700">
+                                City
+                            </label>
                             <input
+                                id="city"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm"
                                 value={city}
                                 onChange={(e) => {
@@ -413,11 +529,22 @@ export default function NewPropertyPage() {
                                     setCityDirty(true);
                                 }}
                                 required
+                                aria-required="true"
+                                aria-invalid={invalid.city || undefined}
+                                aria-describedby={invalid.city ? "city-help" : undefined}
                             />
+                            {invalid.city ? (
+                                <p id="city-help" className="mt-1 text-xs text-red-600">
+                                    {messages.city}
+                                </p>
+                            ) : null}
                         </div>
                         <div>
-                            <label className="block text-sm text-gray-700">State</label>
+                            <label htmlFor="state" className="block text-sm text-gray-700">
+                                State
+                            </label>
                             <input
+                                id="state"
                                 className="mt-1 w-full rounded border px-3 py-2 text-sm uppercase"
                                 value={stateVal}
                                 onChange={(e) => {
@@ -427,15 +554,35 @@ export default function NewPropertyPage() {
                                 placeholder="e.g., CA"
                                 maxLength={2}
                                 required
+                                aria-required="true"
+                                aria-invalid={invalid.stateVal || undefined}
+                                aria-describedby={invalid.stateVal ? "state-help" : undefined}
                             />
+                            {invalid.stateVal ? (
+                                <p id="state-help" className="mt-1 text-xs text-red-600">
+                                    {messages.stateVal}
+                                </p>
+                            ) : null}
                         </div>
                     </div>
 
                     {error ? (
-                        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{error}</div>
+                        <div
+                            id="form-error"
+                            role="alert"
+                            className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                        >
+                            {error}
+                        </div>
                     ) : null}
                     {success ? (
-                        <div className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">{success}</div>
+                        <div
+                            role="status"
+                            aria-live="polite"
+                            className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900"
+                        >
+                            {success}
+                        </div>
                     ) : null}
 
                     <div className="flex items-center justify-center gap-2">
@@ -443,14 +590,19 @@ export default function NewPropertyPage() {
                             type="submit"
                             disabled={isSubmitting}
                             className="rounded bg-gray-900 px-4 py-2 text-white hover:bg-black disabled:opacity-50"
+                            aria-disabled={isSubmitting || undefined}
                         >
                             {isSubmitting ? "Saving…" : "Save"}
                         </button>
                         <button
                             type="button"
                             disabled={isSubmitting}
-                            onClick={() => persist("more")}
+                            onClick={() => {
+                                setAttemptedSubmit(true);
+                                persist("more");
+                            }}
                             className="rounded border px-4 py-2 hover:bg-gray-50 disabled:opacity-50"
+                            aria-disabled={isSubmitting || undefined}
                         >
                             {isSubmitting ? "Saving…" : "Save & Add More"}
                         </button>
