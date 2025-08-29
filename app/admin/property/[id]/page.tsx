@@ -91,7 +91,7 @@ export default function PropertyDetailPage() {
 
         // Load units for this address (only this property doc)
         const uSnap = await getDocs(
-          query(collection(db, "properties", id, "units"), where("adminId", "==", u.uid))
+          query(collection(db, "properties", id, "units"))
         );
 
         let list: UnitDoc[] = uSnap.docs.map((d) => {
