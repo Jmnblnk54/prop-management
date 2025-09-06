@@ -82,8 +82,10 @@
     --color-red-800: oklch(44.4% .177 26.899);
     --color-amber-50: oklch(98.7% .022 95.277);
     --color-amber-100: oklch(96.2% .059 95.617);
+    --color-amber-200: oklch(92.4% .12 95.746);
     --color-amber-300: oklch(87.9% .169 91.605);
     --color-amber-400: oklch(82.8% .189 84.429);
+    --color-amber-800: oklch(47.3% .137 46.201);
     --color-amber-900: oklch(41.4% .112 45.904);
     --color-yellow-100: oklch(97.3% .071 103.193);
     --color-yellow-600: oklch(68.1% .162 75.834);
@@ -94,7 +96,9 @@
     --color-green-700: oklch(52.7% .154 150.069);
     --color-green-800: oklch(44.8% .119 151.328);
     --color-emerald-50: oklch(97.9% .021 166.113);
+    --color-emerald-200: oklch(90.5% .093 164.15);
     --color-emerald-300: oklch(84.5% .143 164.978);
+    --color-emerald-800: oklch(43.2% .095 166.913);
     --color-emerald-900: oklch(37.8% .077 168.94);
     --color-blue-50: oklch(97% .014 254.604);
     --color-blue-100: oklch(93.2% .032 255.585);
@@ -122,6 +126,7 @@
     --container-2xl: 42rem;
     --container-3xl: 48rem;
     --container-4xl: 56rem;
+    --container-6xl: 72rem;
     --text-xs: .75rem;
     --text-xs--line-height: calc(1 / .75);
     --text-sm: .875rem;
@@ -758,6 +763,10 @@
     max-width: var(--container-4xl);
   }
 
+  .max-w-6xl {
+    max-width: var(--container-6xl);
+  }
+
   .max-w-md {
     max-width: var(--container-md);
   }
@@ -776,6 +785,10 @@
 
   .min-w-\[1\.25rem\] {
     min-width: 1.25rem;
+  }
+
+  .min-w-\[56rem\] {
+    min-width: 56rem;
   }
 
   .min-w-full {
@@ -1019,12 +1032,20 @@
     border-left-width: 8px;
   }
 
+  .border-amber-200 {
+    border-color: var(--color-amber-200);
+  }
+
   .border-amber-300 {
     border-color: var(--color-amber-300);
   }
 
   .border-amber-400 {
     border-color: var(--color-amber-400);
+  }
+
+  .border-emerald-200 {
+    border-color: var(--color-emerald-200);
   }
 
   .border-emerald-300 {
@@ -1397,6 +1418,10 @@
     white-space: nowrap;
   }
 
+  .text-amber-800 {
+    color: var(--color-amber-800);
+  }
+
   .text-amber-900 {
     color: var(--color-amber-900);
   }
@@ -1411,6 +1436,10 @@
 
   .text-blue-800 {
     color: var(--color-blue-800);
+  }
+
+  .text-emerald-800 {
+    color: var(--color-emerald-800);
   }
 
   .text-emerald-900 {

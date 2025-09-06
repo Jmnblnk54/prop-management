@@ -7,11 +7,13 @@ import { auth, db } from "@/lib/firebase";
 import {
     addDoc,
     collection,
+    doc,
     getCountFromServer,
     getDocs,
     query,
     serverTimestamp,
     where,
+    setDoc,
 } from "firebase/firestore";
 import { ensureAdminProfile } from "@/lib/ensureAdmin";
 
@@ -27,7 +29,7 @@ function normalizeRow(r: any, id?: string) {
         name: trim(r?.name) || null,
         addressLine1: trim(r?.addressLine1) || trim(a?.line1) || "",
         city: trim(r?.city) || trim(a?.city) || "",
-        state: trim(r?.state) || trim(a?.state) || "",
+        state: (trim(r?.state) || trim(a?.state) || "").toUpperCase(),
         zip: trim(r?.zip) || trim(a?.postalCode) || "",
         createdAt: r?.createdAt || null,
     };
@@ -52,26 +54,18 @@ function useReactFormState(fields: {
     const invalid = useMemo(
         () => ({
             addressLine1: attemptedSubmit && !trim(addressLine1),
-            zip:
-                attemptedSubmit &&
-                (!trim(zip) || !isFiveDigitZip(zip)),
+            zip: attemptedSubmit && (!trim(zip) || !isFiveDigitZip(zip)),
             city: attemptedSubmit && !trim(city),
-            stateVal:
-                attemptedSubmit &&
-                (!trim(stateVal) || trim(stateVal).length !== 2),
+            stateVal: attemptedSubmit && (!trim(stateVal) || trim(stateVal).length !== 2),
         }),
         [addressLine1, zip, city, stateVal, attemptedSubmit]
     );
 
     const messages = {
-        addressLine1:
-            invalid.addressLine1 ? "Address Line 1 is required." : "",
-        zip: invalid.zip
-            ? "ZIP must be a 5-digit code."
-            : "",
+        addressLine1: invalid.addressLine1 ? "Address Line 1 is required." : "",
+        zip: invalid.zip ? "ZIP must be a 5-digit code." : "",
         city: invalid.city ? "City is required." : "",
-        stateVal:
-            invalid.stateVal ? "State must be a 2-letter code." : "",
+        stateVal: invalid.stateVal ? "State must be a 2-letter code." : "",
     };
 
     const isValid =
@@ -207,7 +201,7 @@ export default function NewPropertyPage() {
         if (!pick && addressLine1) pick = latestBy(prevProps, "addressLine1", addressLine1);
 
         if (pick) applyFromProp(pick);
-    }, [name, addressLine1, prevProps]); // <-- key fix kept
+    }, [name, addressLine1, prevProps]);
 
     const resetForm = () => {
         setName("");
@@ -223,26 +217,58 @@ export default function NewPropertyPage() {
         setAttemptedSubmit(false);
     };
 
-    const createPropertyAndOptionalUnit = async () => {
+    /** NEW (minimal): reuse existing property for same admin+address; otherwise create one */
+    const findOrCreatePropertyId = async (): Promise<string> => {
         const u = auth.currentUser!;
+        const normAddr1 = trim(addressLine1);
+        const normCity = trim(city);
+        const normState = trim(stateVal).toUpperCase();
+        const normZip = trim(zip);
+
+        // Try to find an existing property for this admin+address
+        const qRef = query(
+            collection(db, "properties"),
+            where("adminId", "==", u.uid),
+            where("addressLine1", "==", normAddr1),
+            where("city", "==", normCity),
+            where("state", "==", normState),
+            where("zip", "==", normZip)
+        );
+        const existing = await getDocs(qRef);
+        if (!existing.empty) {
+            const doc0 = existing.docs[0];
+            // Optionally keep name updated if provided
+            const newName = trim(name) || null;
+            if (newName && (doc0.data().name || null) !== newName) {
+                await setDoc(doc(db, "properties", doc0.id), { name: newName, updatedAt: serverTimestamp() }, { merge: true });
+            }
+            return doc0.id;
+        }
+
+        // Create the property if none exists
         const propRef = await addDoc(collection(db, "properties"), {
             adminId: u.uid,
             name: trim(name) || null,
-            addressLine1: trim(addressLine1),
-            city: trim(city),
-            state: trim(stateVal),
-            zip: trim(zip),
+            addressLine1: normAddr1,
+            city: normCity,
+            state: normState,
+            zip: normZip,
             createdAt: serverTimestamp(),
         });
-        if (trim(unitOrSuite)) {
-            await addDoc(collection(db, "properties", propRef.id, "units"), {
-                adminId: u.uid,
-                propertyId: propRef.id,
-                unitNumber: trim(unitOrSuite),
-                createdAt: serverTimestamp(),
-            });
-        }
         return propRef.id;
+    };
+
+    /** Create a unit in the subcollection if the user entered one */
+    const maybeCreateUnit = async (propertyId: string) => {
+        const unit = trim(unitOrSuite);
+        if (!unit) return;
+        const u = auth.currentUser!;
+        await addDoc(collection(db, "properties", propertyId, "units"), {
+            adminId: u.uid,
+            propertyId,
+            unitNumber: unit,
+            createdAt: serverTimestamp(),
+        });
     };
 
     const { invalid, messages, isValid } = useReactFormState({
@@ -265,7 +291,6 @@ export default function NewPropertyPage() {
         setSuccess(null);
         try {
             await ensureAdminProfile(u);
-            // keep your existing guard
             if (!trim(addressLine1) || !trim(zip) || !trim(city) || !trim(stateVal)) {
                 setError("Please fill Address Line 1, ZIP, City, and State.");
                 return;
@@ -275,9 +300,11 @@ export default function NewPropertyPage() {
                 return;
             }
 
-            const newId = await createPropertyAndOptionalUnit();
+            // 🔑 Minimal fix: reuse or create the property, then (optionally) create the unit under its subcollection
+            const propertyId = await findOrCreatePropertyId();
+            await maybeCreateUnit(propertyId);
 
-            // make the just-saved property available for immediate autofill on the next entry
+            // keep the just-saved/updated property in local suggestions
             setPrevProps((rows) => [
                 ...rows,
                 normalizeRow(
@@ -285,11 +312,11 @@ export default function NewPropertyPage() {
                         name: trim(name) || null,
                         addressLine1: trim(addressLine1),
                         city: trim(city),
-                        state: trim(stateVal),
+                        state: trim(stateVal).toUpperCase(),
                         zip: trim(zip),
                         createdAt: { seconds: Math.floor(Date.now() / 1000) },
                     },
-                    newId
+                    propertyId
                 ),
             ]);
 
@@ -308,8 +335,9 @@ export default function NewPropertyPage() {
             }
 
             if (mode === "save") {
-                router.push(`/admin-dashboard?waitFor=${encodeURIComponent(newId)}`);
+                router.push(`/admin-dashboard?waitFor=${encodeURIComponent(propertyId)}`);
             } else {
+                // Preserve your original UX: fully reset for adding another property
                 resetForm();
                 setSuccess("Property saved. You can add another.");
             }

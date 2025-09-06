@@ -3,14 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { db } from "@/lib/firebase";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
-import type { Thread } from "./ThreadList";
+import type { Thread, Message } from "./messages_interfaces";
 
-export type Message = {
-    id: string;
-    authorId: string;
-    body: string;
-    createdAt?: any;
-};
 
 export default function MessageWindow({
     thread,

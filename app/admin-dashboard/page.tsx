@@ -2,14 +2,17 @@
 
 import React, { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import {
+  addDoc,
   collection,
   getCountFromServer,
   getDocs,
+  limit,
   query,
+  serverTimestamp,
   where,
 } from "firebase/firestore";
 import { ensureAdminProfile } from "@/lib/ensureAdmin";
@@ -29,7 +32,10 @@ type PropertyDoc = {
   zip: string;
 };
 
-type PropertyWithUnits = PropertyDoc & { unitsCount: number };
+type PropertyWithUnits = PropertyDoc & {
+  unitsCount: number;
+  firstUnitId: string | null; // only set when unitsCount === 1
+};
 
 const COLORS = {
   primary: "#1E67A2",
@@ -67,6 +73,7 @@ function Skeleton() {
 }
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const search = useSearchParams();
   const waitForId = search.get("waitFor") || null;
 
@@ -75,7 +82,6 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timeoutReached, setTimeoutReached] = useState(false);
 
-  // Optional: put keyboard focus on the page title when this mounts
   useEffect(() => {
     const el = document.getElementById("page-title");
     el?.focus();
@@ -105,11 +111,12 @@ export default function AdminDashboardPage() {
         try {
           await ensureAdminProfile(user);
 
+          // Load properties for this admin
           const snap = await getDocs(
             query(collection(db, "properties"), where("adminId", "==", user.uid))
           );
 
-          const raw: PropertyDoc[] = snap.docs.map((d) => {
+          const base: PropertyDoc[] = snap.docs.map((d) => {
             const x = d.data() as any;
             return {
               id: d.id,
@@ -123,69 +130,37 @@ export default function AdminDashboardPage() {
             };
           });
 
-          // Group all docs by full address (one card per address), then sum units across the group.
-          const byAddr = new Map<string, PropertyDoc[]>();
-          for (const p of raw) {
-            const key = `${p.addressLine1.toLowerCase()}|${p.city.toLowerCase()}|${p.state.toLowerCase()}|${p.zip}`;
-            const arr = byAddr.get(key) || [];
-            arr.push(p);
-            byAddr.set(key, arr);
-          }
+          // For each property, get units count (and first unit id if exactly one)
+          const withCounts: PropertyWithUnits[] = await Promise.all(
+            base.map(async (p) => {
+              const unitsCol = collection(db, "properties", p.id, "units");
+              const cSnap = await getCountFromServer(query(unitsCol));
+              const unitsCount = cSnap.data().count;
 
-          const grouped: PropertyWithUnits[] = [];
-          for (const [, docs] of byAddr.entries()) {
-            // Prefer the newly created doc as the representative to satisfy waitFor spinner.
-            const rep =
-              (waitForId && docs.find((d) => d.id === waitForId)) || docs[0];
-
-            // Sum units across *all* docs that match this address.
-            let sum = 0;
-            for (const d of docs) {
-              try {
-                const cSnap = await getCountFromServer(
-                  query(
-                    collection(db, "properties", d.id, "units"),
-                    where("adminId", "==", user.uid)
-                  )
-                );
-                sum += cSnap.data().count;
-              } catch {
-                // ignore
+              let firstUnitId: string | null = null;
+              if (unitsCount === 1) {
+                const firstSnap = await getDocs(query(unitsCol, limit(1)));
+                firstUnitId = firstSnap.docs[0]?.id ?? null;
               }
-            }
 
-            grouped.push({ ...rep, unitsCount: sum });
-          }
-
-          // Sort cards by address line 1 for consistency.
-          grouped.sort((a, b) =>
-            (a.addressLine1 || "").localeCompare(b.addressLine1 || "")
+              return { ...p, unitsCount, firstUnitId };
+            })
           );
 
-          setProperties(grouped);
+          withCounts.sort((a, b) => (a.addressLine1 || "").localeCompare(b.addressLine1 || ""));
+          setProperties(withCounts);
 
-          // KPI: Properties = unique groups by (name || addressLine1)
-          const propKeys = new Set<string>();
-          for (const p of grouped) {
-            const key = (p.name?.trim() || p.addressLine1).toLowerCase();
-            propKeys.add(key);
-          }
-          const propertiesKPI = propKeys.size;
-
-          // KPI: Units = sum(unitsCount if >0 else 1 for standalone)
-          let unitsKPI = 0;
-          for (const p of grouped) unitsKPI += p.unitsCount > 0 ? p.unitsCount : 1;
-
-          const maintKPI = 0;
-          const paymentsKPI = 0;
-
+          // KPIs
+          const propertiesKPI = withCounts.length;
+          const unitsKPI = withCounts.reduce((sum, p) => sum + p.unitsCount, 0);
           setStats([
             { label: "Properties", value: propertiesKPI },
             { label: "Units", value: unitsKPI },
-            { label: "Open Maintenance", value: maintKPI },
-            { label: "Payments (Attention)", value: paymentsKPI },
+            { label: "Open Maintenance", value: 0 },
+            { label: "Payments (Attention)", value: 0 },
           ]);
-        } catch {
+        } catch (e) {
+          console.error("[Dashboard] load error:", e);
           setProperties([]);
           setStats([
             { label: "Properties", value: "…" },
@@ -210,22 +185,43 @@ export default function AdminDashboardPage() {
   const showSkeleton =
     loading || (waitingForNew && !newPropPresent && !timeoutReached);
 
-  // Cards are grouped visually by property name; one card per Address Line 1
-  const groups = useMemo(() => {
-    const byName = new Map<string, PropertyWithUnits[]>();
-    for (const p of properties ?? []) {
-      const key = (p.name?.trim() || "Unnamed Property").toLowerCase();
-      const arr = byName.get(key) || [];
-      arr.push(p);
-      byName.set(key, arr);
+  // Click behavior (FIXED overview route):
+  // 0 units → create default "Home" then /property/[id]/unit/[unitId]
+  // 1 unit → /property/[id]/unit/[unitId]
+  // 2+ units → /admin/property/[id]
+  const onOpenProperty = async (p: PropertyWithUnits) => {
+    const u = auth.currentUser;
+    if (!u) {
+      router.push("/login");
+      return;
     }
-    return Array.from(byName.entries())
-      .map(([key, arr]) => ({
-        name: arr[0]?.name?.trim() || "Unnamed Property",
-        items: arr,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [properties]);
+    try {
+      await ensureAdminProfile(u);
+
+      if (p.unitsCount === 1 && p.firstUnitId) {
+        router.push(`/property/${p.id}/unit/${p.firstUnitId}`);
+        return;
+      }
+
+      if (p.unitsCount === 0) {
+        const unitRef = await addDoc(collection(db, "properties", p.id, "units"), {
+          adminId: u.uid,
+          propertyId: p.id,
+          unitNumber: "Home",
+          isStandalone: true,
+          createdAt: serverTimestamp(),
+        });
+        router.push(`/property/${p.id}/unit/${unitRef.id}`);
+        return;
+      }
+
+      // 2+ units → property overview (admin namespace)
+      router.push(`/admin/property/${p.id}`);
+    } catch (e) {
+      console.error("[Dashboard] open property error:", e);
+      router.push(`/admin/property/${p.id}`);
+    }
+  };
 
   if (showSkeleton) return <Skeleton />;
 
@@ -239,17 +235,14 @@ export default function AdminDashboardPage() {
 
   return (
     <RoleGate allowed={["admin"]}>
-      {/* Main is already a landmark; tie it to a programmatic heading for SRs */}
       <main
         className="mx-auto w-full max-w-2xl p-6 space-y-6"
         aria-labelledby="page-title"
       >
-        {/* Visually hidden page title for screen readers & focus target */}
         <h1 id="page-title" tabIndex={-1} className="sr-only">
           Admin dashboard
         </h1>
 
-        {/* Announce while TenantAlerts code chunk loads */}
         <Suspense
           fallback={
             <div role="status" aria-live="polite" className="text-sm text-gray-500">
@@ -260,7 +253,7 @@ export default function AdminDashboardPage() {
           <TenantAlerts />
         </Suspense>
 
-        {/* KPI cards as an accessible list */}
+        {/* KPI cards */}
         <ul role="list" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {visibleStats.map((s) => {
             const idBase = `stat-${s.label.replace(/\s+/g, "-").toLowerCase()}`;
@@ -291,7 +284,6 @@ export default function AdminDashboardPage() {
           })}
         </ul>
 
-        {/* If a just-created property hasn't appeared yet, announce politely */}
         {waitingForNew && !newPropPresent && timeoutReached ? (
           <div
             role="status"
@@ -303,10 +295,7 @@ export default function AdminDashboardPage() {
           </div>
         ) : null}
 
-        <section
-          className="space-y-4"
-          aria-labelledby="props-heading"
-        >
+        <section className="space-y-4" aria-labelledby="props-heading">
           <div
             className="rounded border"
             style={{ borderColor: COLORS.border, backgroundColor: COLORS.headerBg }}
@@ -334,60 +323,54 @@ export default function AdminDashboardPage() {
               No properties yet. Click <strong>+ Add Property</strong> to get started.
             </div>
           ) : (
-            <div className="space-y-6">
-              {groups.map((g) => (
-                <div key={g.name} className="space-y-3">
+            <ul role="list" className="grid gap-3 md:grid-cols-2">
+              {properties.map((p) => (
+                <li
+                  key={p.id}
+                  role="listitem"
+                  className="rounded border bg-white"
+                  style={{ borderColor: COLORS.border }}
+                >
                   <div
-                    className="rounded border px-4 py-2"
-                    style={{ borderColor: COLORS.border, backgroundColor: COLORS.cardHeaderBg }}
+                    className="px-4 h-10 flex items-center text-sm"
+                    style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}
                   >
-                    <div className="font-medium text-gray-900">{g.name}</div>
+                    {p.name?.trim() || "Unnamed Property"}
                   </div>
 
-                  <ul role="list" className="grid gap-3 md:grid-cols-2">
-                    {g.items.map((p) => (
-                      <li
-                        key={p.id}
-                        role="listitem"
-                        aria-label={`${p.addressLine1}, ${p.city}, ${p.state} ${p.zip}${p.unitsCount > 0 ? `, Units: ${p.unitsCount}` : ""}`}
-                        className="rounded border bg-white"
-                        style={{ borderColor: COLORS.border }}
-                      >
-                        <div
-                          className="px-4 h-10 flex items-center text-sm"
-                          style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}
-                        >
-                          {p.addressLine1}
-                        </div>
-                        <div className="px-4 py-3 text-sm text-gray-900">
-                          <div>
-                            {p.city}, {p.state} {p.zip}
-                          </div>
-                          {p.unitsCount > 0 ? (
-                            <div
-                              className="mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1 ring-inset"
-                              style={{ color: COLORS.primary, borderColor: COLORS.soft }}
-                            >
-                              Units: {p.unitsCount}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="px-4 pb-4">
-                          <Link
-                            href={`/admin/property/${p.id}`}
-                            className="rounded border px-3 py-1 text-sm"
-                            aria-label={`View property at ${p.addressLine1}, ${p.city}, ${p.state} ${p.zip}`}
-                            style={{ borderColor: COLORS.soft, color: COLORS.primary }}
-                          >
-                            View Property
-                          </Link>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                  <div className="px-4 py-3 text-sm text-gray-900">
+                    <div className="font-medium">{p.addressLine1}</div>
+                    <div className="text-gray-700">
+                      {p.city}, {p.state} {p.zip}
+                    </div>
+                    <div
+                      className="mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1 ring-inset"
+                      style={{ color: COLORS.primary, borderColor: COLORS.soft }}
+                    >
+                      Units: {p.unitsCount}
+                    </div>
+                  </div>
+
+                  <div className="px-4 pb-4">
+                    <button
+                      type="button"
+                      onClick={() => onOpenProperty(p)}
+                      className="rounded border px-3 py-1 text-sm"
+                      aria-label={
+                        p.unitsCount === 0
+                          ? `Create unit and open ${p.addressLine1}`
+                          : p.unitsCount === 1
+                            ? `Open unit for ${p.addressLine1}`
+                            : `Open property ${p.addressLine1}`
+                      }
+                      style={{ borderColor: COLORS.soft, color: COLORS.primary }}
+                    >
+                      {p.unitsCount <= 1 ? "Open Unit" : "View Property"}
+                    </button>
+                  </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </section>
       </main>

@@ -23,7 +23,6 @@ export default function MobileNav({
 }) {
   const pathname = usePathname();
 
-  // ESC to close
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -47,9 +46,8 @@ export default function MobileNav({
       />
       {/* panel */}
       <aside
-        className={`absolute left-0 top-0 h-full w-72 bg-white shadow transition-transform ${
-          open ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`absolute left-0 top-0 h-full w-72 bg-white shadow transition-transform ${open ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         <div className="flex items-center justify-between border-b px-4 h-14">
           <span className="font-semibold">Menu</span>
@@ -70,9 +68,8 @@ export default function MobileNav({
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className={`block rounded px-3 py-2 text-sm hover:bg-gray-100 ${
-                      active ? 'bg-gray-100 font-medium' : ''
-                    }`}
+                    className={`block rounded px-3 py-2 text-sm hover:bg-gray-100 ${active ? 'bg-gray-100 font-medium' : ''
+                      }`}
                     onClick={onClose}
                   >
                     {item.label}

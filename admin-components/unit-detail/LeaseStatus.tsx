@@ -1,8 +1,8 @@
 import React from "react";
-
+import { formatDate } from "../../lib/constants";
 interface LeaseStatusProps {
-  leaseStart: string; 
-  leaseLengthMonths: number; 
+  leaseStart: string;
+  leaseLengthMonths: number;
 }
 
 const LeaseStatus: React.FC<LeaseStatusProps> = ({ leaseStart, leaseLengthMonths }) => {
@@ -13,12 +13,7 @@ const LeaseStatus: React.FC<LeaseStatusProps> = ({ leaseStart, leaseLengthMonths
   const now = new Date();
   const isActive = now <= end;
 
-  const formatDate = (date: Date) =>
-    date.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+
 
   return (
     <div className="bg-white shadow rounded p-4">

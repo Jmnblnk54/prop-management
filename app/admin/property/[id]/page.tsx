@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { collection, doc, getCountFromServer, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query } from "firebase/firestore";
 import RoleGate from "@/components/auth/RoleGate";
 import { ensureAdminProfile } from "@/lib/ensureAdmin";
+import { COLORS } from "@/lib/constants";
 
 type UnitDoc = {
   id: string | null; // null = virtual row when standalone
@@ -28,13 +29,6 @@ type PropertyDoc = {
   city: string;
   state: string;
   zip: string;
-};
-
-const COLORS = {
-  primary: "#1E67A2",
-  soft: "#A0BBD6",
-  cardHeaderBg: "#EDF2FA",
-  border: "#A0BBD6",
 };
 
 function fmtDate(ts: any) {
@@ -89,11 +83,8 @@ export default function PropertyDetailPage() {
         };
         setProp(property);
 
-        // Load units for this address (only this property doc)
-        const uSnap = await getDocs(
-          query(collection(db, "properties", id, "units"))
-        );
-
+        // Load units for this property
+        const uSnap = await getDocs(query(collection(db, "properties", id, "units")));
         let list: UnitDoc[] = uSnap.docs.map((d) => {
           const r = d.data() as any;
           return {
@@ -103,11 +94,11 @@ export default function PropertyDetailPage() {
             unoccupiedSince: r.unoccupiedSince ?? null,
             leaseEndDate: r.leaseEndDate ?? null,
             delinquent: typeof r.delinquent === "boolean" ? r.delinquent : null,
-            maintReqOpenCount: typeof r.maintReqOpenCount === "number" ? r.maintReqOpenCount : null,
+            maintReqOpenCount:
+              typeof r.maintReqOpenCount === "number" ? r.maintReqOpenCount : null,
           };
         });
 
-        // If standalone (no unit docs), add a virtual row
         if (!list.length) {
           list = [
             {
@@ -122,8 +113,9 @@ export default function PropertyDetailPage() {
           ];
         }
 
-        // sort by unit number (string locale compare)
-        list.sort((a, b) => (a.unitNumber || "").localeCompare(b.unitNumber || ""));
+        list.sort((a, b) =>
+          (a.unitNumber || "").localeCompare(b.unitNumber || "")
+        );
         setUnits(list);
       } catch (e: any) {
         setErr(e?.message || "Failed to load property.");
@@ -144,13 +136,15 @@ export default function PropertyDetailPage() {
   if (loading) {
     return (
       <RoleGate allowed={["admin"]}>
-        <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
+        <main className="mx-auto w-full max-w-6xl p-6 space-y-6">
           <div className="animate-pulse space-y-3">
             <div className="h-7 w-2/3 bg-gray-200 rounded" />
             <div className="h-4 w-1/2 bg-gray-200 rounded" />
           </div>
           <div className="rounded border bg-white" style={{ borderColor: COLORS.border }}>
-            <div className="px-4 py-2 text-sm" style={{ backgroundColor: COLORS.cardHeaderBg }}>Units</div>
+            <div className="px-4 py-2 text-sm" style={{ backgroundColor: COLORS.cardHeaderBg }}>
+              Units
+            </div>
             <div className="p-4 space-y-2">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="h-9 bg-gray-100 rounded" />
@@ -165,9 +159,11 @@ export default function PropertyDetailPage() {
   if (err) {
     return (
       <RoleGate allowed={["admin"]}>
-        <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
+        <main className="mx-auto w-full max-w-6xl p-6 space-y-6">
           <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">{err}</div>
-          <Link href="/admin-dashboard" className="text-sm underline hover:no-underline">← Back to Dashboard</Link>
+          <Link href="/admin-dashboard" className="text-sm underline hover:no-underline">
+            ← Back to Dashboard
+          </Link>
         </main>
       </RoleGate>
     );
@@ -177,10 +173,14 @@ export default function PropertyDetailPage() {
 
   return (
     <RoleGate allowed={["admin"]}>
-      <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
+      <main className="mx-auto w-full max-w-6xl p-6 space-y-6">
         <div className="flex items-center justify-between">
-          <Link href="/admin-dashboard" className="text-sm underline hover:no-underline">← Dashboard</Link>
-          <Link href="/admin/properties/new" className="text-sm underline hover:no-underline">+ Add Property</Link>
+          <Link href="/admin-dashboard" className="text-sm underline hover:no-underline">
+            ← Dashboard
+          </Link>
+          <Link href="/admin/properties/new" className="text-sm underline hover:no-underline">
+            + Add Property
+          </Link>
         </div>
 
         <section className="space-y-1">
@@ -189,52 +189,78 @@ export default function PropertyDetailPage() {
         </section>
 
         <section className="rounded border bg-white" style={{ borderColor: COLORS.border }}>
-          <div className="px-4 py-2 text-sm" style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}>
+          <div
+            className="px-4 py-2 text-sm"
+            style={{ backgroundColor: COLORS.cardHeaderBg, color: "#000" }}
+          >
             Units
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left">
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>Unit</th>
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>Tenant Since</th>
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>Unoccupied Since / Lease End</th>
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>Delinquent</th>
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>Maint. Req</th>
-                  <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}></th>
-                </tr>
-              </thead>
-              <tbody>
+            <table className="w-full text-sm min-w-[56rem]"><thead>
+              <tr className="text-left">
+                <th className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
+                  Unit
+                </th>
+                <th className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
+                  Tenant Since
+                </th>
+                <th className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
+                  Unoccupied Since / Lease End
+                </th>
+                <th className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
+                  Delinquent
+                </th>
+                <th className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
+                  Maint. Req
+                </th>
+                <th className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }} />
+              </tr>
+            </thead><tbody>
                 {units.map((u) => {
                   const when =
-                    u.unoccupiedSince ? fmtDate(u.unoccupiedSince) :
-                      u.leaseEndDate ? fmtDate(u.leaseEndDate) :
-                        "—";
+                    u.unoccupiedSince
+                      ? fmtDate(u.unoccupiedSince)
+                      : u.leaseEndDate
+                        ? fmtDate(u.leaseEndDate)
+                        : "—";
                   const delinquent =
                     typeof u.delinquent === "boolean"
-                      ? (u.delinquent ? "Yes" : "No")
+                      ? u.delinquent
+                        ? "Yes"
+                        : "No"
                       : "No";
                   const maint =
                     typeof u.maintReqOpenCount === "number"
-                      ? (u.maintReqOpenCount > 0 ? `${u.maintReqOpenCount}` : "0")
+                      ? u.maintReqOpenCount > 0
+                        ? `${u.maintReqOpenCount}`
+                        : "0"
                       : "0";
 
                   return (
                     <tr key={u.id ?? `virtual`} className="odd:bg-white even:bg-gray-50">
-                      <td className="px-4 py-2 border-b text-gray-900" style={{ borderColor: COLORS.border }}>
+                      <td
+                        className="px-4 py-2 border-b text-gray-900 whitespace-nowrap"
+                        style={{ borderColor: COLORS.border }}
+                      >
                         {u.unitNumber || "—"}
                       </td>
-                      <td className="px-4 py-2 border-b text-gray-900" style={{ borderColor: COLORS.border }}>
+                      <td
+                        className="px-4 py-2 border-b text-gray-900 whitespace-nowrap"
+                        style={{ borderColor: COLORS.border }}
+                      >
                         {fmtDate(u.tenantSince)}
                       </td>
-                      <td className="px-4 py-2 border-b text-gray-900" style={{ borderColor: COLORS.border }}>
+                      <td
+                        className="px-4 py-2 border-b text-gray-900 whitespace-nowrap"
+                        style={{ borderColor: COLORS.border }}
+                      >
                         {when}
                       </td>
-                      <td className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>
+                      <td className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
                         {delinquent}
                       </td>
-                      <td className="px-4 py-2 border-b" style={{ borderColor: COLORS.border }}>
+                      <td className="px-4 py-2 border-b whitespace-nowrap" style={{ borderColor: COLORS.border }}>
                         {maint}
                       </td>
                       <td className="px-4 py-2 border-b text-right" style={{ borderColor: COLORS.border }}>
@@ -260,8 +286,7 @@ export default function PropertyDetailPage() {
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
+              </tbody></table>
           </div>
         </section>
       </main>
