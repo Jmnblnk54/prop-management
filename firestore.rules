@@ -1,0 +1,10 @@
+// Firestore security rules
+rules_version = "2";
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // TODO: paste your real rules here
+    match /{document=**} {
+      allow read, write: if false; // locked by default
+    }
+  }
+}

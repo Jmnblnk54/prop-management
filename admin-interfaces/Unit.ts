@@ -25,3 +25,23 @@ export interface UnitDoc {
   insuranceStatus?: 'submitted' | 'verified' | 'rejected' | null;
   createdAt?: any;
 }
+
+export interface UnitDetails {
+  id?: string;
+  unitNumber: string;
+
+  tenantEmail?: string | null;
+  tenantName?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+
+  rentMonthly?: number | null;
+  rentDueDay?: number | null; // 1–28
+  leaseStartDate?: any | null; // Firestore Timestamp | Date | null
+  leaseEndDate?: any | null;
+  monthToMonth?: boolean | null;
+  noticeTimeframeMonths?: number | null;
+  leaseOnFile?: boolean | null;
+
+  createdAt?: any;
+}
