@@ -25,63 +25,86 @@ export default function TenantAcceptPage() {
 
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
+
     const [userEmail, setUserEmail] = useState<string | null>(null);
     const [invite, setInvite] = useState<any | null>(null);
+
     const [agreed, setAgreed] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [switching, setSwitching] = useState(false);
 
-    const ready = useMemo(() => Boolean(inviteId && code && userEmail && invite), [inviteId, code, userEmail, invite]);
     const emailMatches = useMemo(() => {
         if (!invite?.tenantEmail || !userEmail) return false;
         return invite.tenantEmail.trim().toLowerCase() === userEmail.trim().toLowerCase();
     }, [invite, userEmail]);
 
+    // Ready means we have an invite loaded and the user is signed in (match may be true/false)
+    const ready = useMemo(() => Boolean(inviteId && code && invite && userEmail), [inviteId, code, invite, userEmail]);
+
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (u) => {
-            if (!u) {
-                const next = encodeURIComponent(`/tenant/accept?invite=${encodeURIComponent(inviteId)}&code=${encodeURIComponent(code)}`);
-                router.push(`/login?next=${next}`);
-                return;
-            }
-            setUserEmail(u.email || null);
+            setUserEmail(u?.email || null);
+
+            // Try loading the invite once we know current auth state
             try {
                 setLoading(true);
                 const iRef = doc(db, 'tenantInvites', inviteId);
                 const snap = await getDoc(iRef);
+
                 if (!snap.exists()) {
                     setErr('Invite not found.');
                     setInvite(null);
                     return;
                 }
+
                 const d = snap.data() as any;
+
+                // Verify code
                 const hash = await sha256Base64Url(code);
                 if (d.codeHash !== hash) {
                     setErr('Invalid or expired invite code.');
                     setInvite(null);
                     return;
                 }
+
+                // Invite status gate
                 if (d.status && d.status !== 'sent') {
                     setErr('This invite is no longer valid.');
                     setInvite(null);
                     return;
                 }
+
                 setInvite({ ...d, id: inviteId });
+                setErr(null);
             } catch (e: any) {
+                // If read is blocked by rules (e.g., signed into wrong account),
+                // surface a helpful message but keep going—user can switch accounts below.
                 setErr(e?.message || 'Failed to load invite.');
                 setInvite(null);
             } finally {
                 setLoading(false);
             }
+
+            // If not signed in at all, send to login with return URL back here.
+            if (!u) {
+                const next = `/tenant/accept?invite=${encodeURIComponent(inviteId)}&code=${encodeURIComponent(code)}`;
+                router.replace(`/login?next=${encodeURIComponent(next)}`);
+            }
         });
+
         return () => unsub();
-    }, [inviteId, code, router]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [inviteId, code]);
 
     async function accept() {
         const u = auth.currentUser;
         if (!u || !invite) return;
         if (!agreed || !emailMatches) return;
+
         try {
             setSubmitting(true);
+
+            // Create tenant doc if missing
             const tRef = doc(db, 'tenants', u.uid);
             const tSnap = await getDoc(tRef);
             if (!tSnap.exists()) {
@@ -95,6 +118,8 @@ export default function TenantAcceptPage() {
                     createdAt: serverTimestamp(),
                 });
             }
+
+            // Mark invite accepted (best-effort; tenant may be allowed by rules)
             try {
                 const iRef = doc(db, 'tenantInvites', invite.id);
                 await updateDoc(iRef, {
@@ -103,8 +128,13 @@ export default function TenantAcceptPage() {
                     tenantId: u.uid,
                 });
             } catch {
-                // ignore if rules prevent tenant from updating invites
+                // ignore if rules prevent write here
             }
+
+            // Remember tenant dashboard and go
+            try {
+                localStorage.setItem('lastDashboard', '/tenant');
+            } catch { }
             router.replace('/tenant');
         } catch (e: any) {
             setErr(e?.message || 'Could not accept invite.');
@@ -114,9 +144,17 @@ export default function TenantAcceptPage() {
     }
 
     async function switchAccount() {
-        const next = `/tenant/accept?invite=${encodeURIComponent(inviteId)}&code=${encodeURIComponent(code)}`;
-        await signOut(auth);
-        router.push(`/login?next=${encodeURIComponent(next)}`);
+        try {
+            setSwitching(true);
+            const next = `/tenant/accept?invite=${encodeURIComponent(inviteId)}&code=${encodeURIComponent(code)}`;
+            try {
+                localStorage.removeItem('lastDashboard');
+            } catch { }
+            await signOut(auth).catch(() => { });
+            router.replace(`/login?next=${encodeURIComponent(next)}`);
+        } finally {
+            setSwitching(false);
+        }
     }
 
     if (loading) {
@@ -131,34 +169,50 @@ export default function TenantAcceptPage() {
         );
     }
 
-    if (err) {
+    // If we couldn't load the invite, show error and (if signed in as someone) offer to switch
+    if (err && !invite) {
         return (
             <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
                 <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">{err}</div>
+                {userEmail ? (
+                    <button
+                        className="rounded border px-4 py-2 text-sm"
+                        style={{ borderColor: COLORS.soft, color: COLORS.primary }}
+                        onClick={switchAccount}
+                        disabled={switching}
+                    >
+                        {switching ? 'Working…' : 'Switch account'}
+                    </button>
+                ) : null}
             </main>
         );
     }
 
+    // Normal UI
     return (
         <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
             <header className="space-y-1">
                 <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Accept Invite</h1>
+
                 {invite?.tenantEmail ? (
                     <div className="text-sm text-gray-600">
                         This invite is for <strong>{invite.tenantEmail}</strong>
                     </div>
                 ) : null}
+
                 {userEmail && !emailMatches ? (
-                    <div className="flex items-center gap-3 text-sm">
-                        <div className="text-amber-700 rounded border border-amber-300 bg-amber-50 p-2">
-                            You’re signed in as {userEmail}. Please switch to {invite?.tenantEmail}.
+                    <div className="space-y-2">
+                        <div className="text-sm text-amber-700 rounded border border-amber-300 bg-amber-50 p-2">
+                            You’re signed in as <strong>{userEmail}</strong>. Please switch to <strong>{invite?.tenantEmail || 'the invited email'}</strong>.
                         </div>
                         <button
-                            className="rounded border px-3 py-1"
+                            className="rounded border px-3 py-2 text-sm"
                             style={{ borderColor: COLORS.soft, color: COLORS.primary }}
                             onClick={switchAccount}
+                            disabled={switching}
+                            title="Sign out and sign in with the invited email"
                         >
-                            Switch account
+                            {switching ? 'Working…' : `Switch to ${invite?.tenantEmail || 'invited email'}`}
                         </button>
                     </div>
                 ) : null}
@@ -189,10 +243,21 @@ export default function TenantAcceptPage() {
                     style={{ borderColor: COLORS.soft, color: COLORS.primary }}
                     onClick={accept}
                     disabled={!ready || !agreed || !emailMatches || submitting}
-                    title={!agreed ? 'Please accept the terms' : !emailMatches ? 'Sign in with the invited email' : undefined}
+                    title={
+                        !userEmail
+                            ? 'Please sign in'
+                            : !invite
+                                ? 'Invite not loaded'
+                                : !agreed
+                                    ? 'Please accept the terms'
+                                    : !emailMatches
+                                        ? 'Sign in with the invited email'
+                                        : undefined
+                    }
                 >
                     {submitting ? 'Working…' : 'Accept Invite'}
                 </button>
+
                 <button
                     className="rounded border px-4 py-2 text-sm"
                     style={{ borderColor: COLORS.soft, color: COLORS.primary }}

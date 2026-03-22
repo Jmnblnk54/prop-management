@@ -82,6 +82,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timeoutReached, setTimeoutReached] = useState(false);
 
+  useEffect(() => { localStorage.setItem('lastDashboard', '/admin'); }, []);
+
   useEffect(() => {
     const el = document.getElementById("page-title");
     el?.focus();

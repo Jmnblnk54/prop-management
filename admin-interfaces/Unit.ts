@@ -36,8 +36,8 @@ export interface UnitDetails {
   notes?: string | null;
 
   rentMonthly?: number | null;
-  rentDueDay?: number | null; // 1–28
-  leaseStartDate?: any | null; // Firestore Timestamp | Date | null
+  rentDueDay?: number | null;
+  leaseStartDate?: any | null;
   leaseEndDate?: any | null;
   monthToMonth?: boolean | null;
   noticeTimeframeMonths?: number | null;

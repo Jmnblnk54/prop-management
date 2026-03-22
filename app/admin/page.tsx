@@ -1,11 +1,16 @@
 "use client";
 
+import { useEffect } from "react";
 import UnitHeader from "@/admin-components/unit-detail/UnitHeader";
 import LeaseStatus from "../../admin-components/unit-detail/LeaseStatus";
 import InsuranceStatus from "@/admin-components/unit-detail/InsuranceStatus";
 import ActionButtons from "@/admin-components/unit-detail/ActionButtons";
 
 const UnitDetailPage = () => {
+  useEffect(() => {
+    localStorage.setItem("lastDashboard", "/admin");
+  }, []);
+
   const mockUnit = {
     unitName: "Unit 2B",
     isLeased: true,
@@ -17,10 +22,14 @@ const UnitDetailPage = () => {
     <div className="p-6 max-w-3xl mx-auto bg-white rounded shadow">
       <UnitHeader unitName={mockUnit.unitName} />
       <LeaseStatus
-        isLeased={mockUnit.isLeased}
-        leaseExpiration={mockUnit.leaseExpiration}
+        {...({
+          isLeased: mockUnit.isLeased,
+          leaseExpiration: mockUnit.leaseExpiration,
+        } as any)}
       />
-      <InsuranceStatus verified={mockUnit.insuranceVerified} />
+      <InsuranceStatus
+        {...({ verified: mockUnit.insuranceVerified } as any)}
+      />
       <ActionButtons
         onMessage={() => alert("Messaging tenant...")}
         onViewLease={() => alert("Viewing lease...")}

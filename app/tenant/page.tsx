@@ -55,6 +55,8 @@ export default function TenantHomePage() {
     const [property, setProperty] = useState<PropertyLite | null>(null);
     const [unit, setUnit] = useState<UnitLite | null>(null);
 
+    useEffect(() => { localStorage.setItem('lastDashboard', '/tenant'); }, []);
+
     useEffect(() => {
         const unsub = onAuthStateChanged(auth, async (u) => {
             if (!u) {

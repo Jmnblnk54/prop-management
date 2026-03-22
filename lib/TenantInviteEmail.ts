@@ -32,19 +32,16 @@ function toBase64Url(bytes: Uint8Array) {
     const bin = String.fromCharCode(...bytes);
     return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
-
 function randomToken(bytes = 24) {
     const buf = new Uint8Array(bytes);
     crypto.getRandomValues(buf);
     return toBase64Url(buf);
 }
-
 async function sha256Base64Url(s: string) {
     const enc = new TextEncoder().encode(s);
     const digest = await crypto.subtle.digest('SHA-256', enc);
     return toBase64Url(new Uint8Array(digest));
 }
-
 function getBaseUrl() {
     if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
     const fromEnv = process.env.NEXT_PUBLIC_APP_BASE_URL?.replace(/\/+$/, '');
@@ -62,16 +59,18 @@ export type InviteEmailParams = {
     unitNumber?: string | null;
     managerName?: string | null;
     managerEmail?: string | null;
-    expiresInDays?: number; // optional override (default 14)
+    expiresInDays?: number; // default 14
 };
 
 export async function createInviteAndSendEmail(p: InviteEmailParams) {
     ensureEmailJsInit();
 
+    // deterministic ID to prevent duplicates for the same (property, unit, email)
     const normalizedEmail = p.tenantEmail.trim().toLowerCase();
     const emailHash = await sha256Base64Url(normalizedEmail);
     const inviteId = `${p.propertyId}_${p.unitId}_${emailHash}`;
 
+    // single-use code (store hash only)
     const rawCode = randomToken(24);
     const codeHash = await sha256Base64Url(rawCode);
 
@@ -93,11 +92,8 @@ export async function createInviteAndSendEmail(p: InviteEmailParams) {
             lastSentAt: serverTimestamp(),
             resendCount: 0,
             codeHash,
-            expiresAt,
-            sentBy: {
-                name: p.managerName || null,
-                email: p.managerEmail || null,
-            },
+            expiresAt, // Firestore will store as Timestamp
+            sentBy: { name: p.managerName || null, email: p.managerEmail || null },
         });
     } else {
         await updateDoc(ref, {
@@ -106,11 +102,7 @@ export async function createInviteAndSendEmail(p: InviteEmailParams) {
             resendCount: increment(1),
             codeHash,
             expiresAt,
-            // keep original invitedAt
-            sentBy: {
-                name: p.managerName || null,
-                email: p.managerEmail || null,
-            },
+            sentBy: { name: p.managerName || null, email: p.managerEmail || null },
         });
     }
 

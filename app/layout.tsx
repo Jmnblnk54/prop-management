@@ -2,7 +2,8 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { AuthProvider } from "@/context/AuthContext";
-import Footer from "@/components/ui/Footer"; 
+import Footer from "@/components/ui/Footer";
+import AuthBoot from "@/components/auth/AuthBoot";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -50,19 +51,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <head>
-        <meta name="theme-color" content="#ffffff" />
-        <link rel="manifest" href="/site.webmanifest" />
-      </head>
-      <body className={inter.className}>
-        <AuthProvider>
-          <main className="min-h-screen flex flex-col">
-            <div className="flex-grow">{children}</div>
-            <Footer />
-          </main>
-        </AuthProvider>
-      </body>
-    </html>
+    <>
+      <AuthBoot />
+      <html lang="en">
+        <head>
+          <meta name="theme-color" content="#ffffff" />
+          <link rel="manifest" href="/site.webmanifest" />
+        </head>
+        <body className={inter.className}>
+          <AuthProvider>
+            <main className="min-h-screen flex flex-col">
+              <div className="flex-grow">{children}</div>
+              <Footer />
+            </main>
+          </AuthProvider>
+        </body>
+      </html>
+    </>
+
   );
 }
